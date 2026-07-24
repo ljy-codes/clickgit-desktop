@@ -105,6 +105,48 @@ class MainWindowSmokeTests(unittest.TestCase):
         verifier = Repository(repository.path, GitRunner())
         self.assertEqual(verifier.history(limit=1)[0].subject, "button commit")
 
+    def test_dangerous_actions_create_recovery_records(self) -> None:
+        repository = Repository.init(
+            Path(self.temp_dir.name) / "recovery-workflow",
+            GitRunner(),
+        )
+        repository.configure_identity("ClickGit User", "clickgit@example.com")
+        tracked = repository.path / "tracked.txt"
+        tracked.write_text("one\n", encoding="utf-8")
+        repository.stage(["tracked.txt"])
+        first = repository.commit("first")
+        tracked.write_text("two\n", encoding="utf-8")
+        repository.stage(["tracked.txt"])
+        repository.commit("second")
+        untracked = repository.path / "remove-me.tmp"
+        untracked.write_text("recoverable\n", encoding="utf-8")
+        window = MainWindow(self.controller)
+        self.addCleanup(window.close)
+        self.controller.open_repository(repository.path)
+        self._wait_until(lambda: window.repository_path == repository.path)
+
+        self.controller.reset(first.oid, mode="hard")
+        self._wait_until(
+            lambda: tracked.read_text(encoding="utf-8") == "one\n"
+            and len(list(self.controller.recovery_root.glob("*/manifest.json")))
+            == 1
+        )
+        self.controller.quarantine_untracked(["remove-me.tmp"])
+        self._wait_until(
+            lambda: not untracked.exists()
+            and len(list(self.controller.recovery_root.glob("*/manifest.json")))
+            == 2
+        )
+
+        self.assertTrue(
+            any(
+                (path.parent / "files" / "remove-me.tmp").exists()
+                for path in self.controller.recovery_root.glob(
+                    "*/manifest.json"
+                )
+            )
+        )
+
     @staticmethod
     def _wait_until(predicate, timeout: float = 8.0) -> None:
         deadline = time.monotonic() + timeout

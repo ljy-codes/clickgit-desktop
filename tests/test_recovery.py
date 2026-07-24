@@ -60,7 +60,21 @@ class RecoveryManagerTests(unittest.TestCase):
 
         self.assertTrue(outside.exists())
 
+    def test_recovery_manifest_can_be_reloaded_after_restart(self) -> None:
+        file_path = self.repository.path / "reload.txt"
+        file_path.write_text("reload", encoding="utf-8")
+        point = self.manager.quarantine([file_path])
+
+        reloaded_manager = RecoveryManager(
+            self.repository,
+            self.root / "recovery",
+        )
+        points = reloaded_manager.list_points()
+
+        self.assertEqual([item.identifier for item in points], [point.identifier])
+        self.assertTrue(points[0].restore())
+        self.assertEqual(file_path.read_text(encoding="utf-8"), "reload")
+
 
 if __name__ == "__main__":
     unittest.main()
-

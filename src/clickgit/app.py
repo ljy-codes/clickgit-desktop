@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from clickgit.git_runner import GitRunner
 from clickgit.models import Branch, FileChange
+from clickgit.recovery import RecoveryManager, RecoveryPoint
 from clickgit.repository import OperationConflict, Repository
 from clickgit.settings import AppSettings, SettingsStore
 from clickgit.tasks import RepositoryTaskQueue
@@ -31,6 +32,13 @@ class AppController(QObject):
     tags_ready = Signal(object)
     stashes_ready = Signal(object)
     remotes_ready = Signal(object)
+    reflog_ready = Signal(object)
+    recovery_ready = Signal(object)
+    clean_preview_ready = Signal(object)
+    worktrees_ready = Signal(object)
+    submodules_ready = Signal(object)
+    conflict_versions_ready = Signal(object)
+    diagnostic_ready = Signal(str, str)
     diff_ready = Signal(str, str, bool)
     busy_changed = Signal(bool)
     operation_started = Signal(str)
@@ -50,6 +58,7 @@ class AppController(QObject):
         super().__init__(parent)
         self.settings_store = settings_store
         self.settings = settings_store.load()
+        self.recovery_root = settings_store.path.parent / "recovery"
         self.runner = GitRunner(git_executable=git_executable)
         self.task_queue = RepositoryTaskQueue()
         self.repository: Repository | None = None
@@ -158,6 +167,65 @@ class AppController(QObject):
             "正在读取远程仓库",
             "remotes",
             self.remotes_ready.emit,
+        )
+
+    def load_reflog(self) -> None:
+        self._load_collection(
+            "正在读取 Reflog",
+            "reflog",
+            self.reflog_ready.emit,
+        )
+
+    def load_worktrees(self) -> None:
+        self._load_collection(
+            "正在读取 Worktree",
+            "worktrees",
+            self.worktrees_ready.emit,
+        )
+
+    def load_submodules(self) -> None:
+        self._load_collection(
+            "正在读取子模块",
+            "submodules",
+            self.submodules_ready.emit,
+        )
+
+    def load_recovery_points(self) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+        self._submit(
+            repository.path,
+            lambda: self._recovery_manager(repository).list_points(),
+            write=False,
+            label="正在读取恢复记录",
+            on_success=self.recovery_ready.emit,
+        )
+
+    def load_clean_preview(self, *, include_ignored: bool = False) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+        self._submit(
+            repository.path,
+            lambda: repository.clean_preview(
+                include_ignored=include_ignored
+            ),
+            write=False,
+            label="正在扫描未跟踪文件",
+            on_success=self.clean_preview_ready.emit,
+        )
+
+    def load_conflict_versions(self, path: str) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+        self._submit(
+            repository.path,
+            lambda: repository.conflict_versions(path),
+            write=False,
+            label="正在读取冲突版本",
+            on_success=self.conflict_versions_ready.emit,
         )
 
     def stage(self, paths: list[str]) -> None:
@@ -283,6 +351,145 @@ class AppController(QObject):
     def continue_rebase(self) -> None:
         self._run_write("正在继续变基", lambda repo: repo.continue_rebase())
 
+    def resolve_conflict(self, path: str, result_text: str) -> None:
+        self._run_write(
+            "正在保存冲突结果",
+            lambda repo: repo.resolve_conflict(path, result_text),
+        )
+
+    def reset(self, target: str, *, mode: str) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+
+        def protected_reset() -> RecoveryPoint:
+            manager = self._recovery_manager(repository)
+            point = manager.protect_commit_graph(f"{mode}-reset")
+            repository.reset(target, mode=mode)
+            return point
+
+        self._submit(
+            repository.path,
+            protected_reset,
+            write=True,
+            label="正在回退提交",
+            success_message="回退完成，已创建恢复点",
+            on_success=lambda _point: self._after_recovery_change(),
+        )
+
+    def quarantine_untracked(self, paths: list[str]) -> None:
+        repository = self.repository
+        if repository is None or not paths:
+            return
+
+        def quarantine() -> RecoveryPoint:
+            return self._recovery_manager(repository).quarantine(
+                repository.path / path for path in paths
+            )
+
+        self._submit(
+            repository.path,
+            quarantine,
+            write=True,
+            label="正在隔离未跟踪文件",
+            success_message="文件已移入恢复中心",
+            on_success=lambda _point: self._after_recovery_change(),
+        )
+
+    def restore_recovery_point(self, point: RecoveryPoint) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+        self._submit(
+            repository.path,
+            point.restore,
+            write=True,
+            label="正在恢复内容",
+            success_message="恢复完成",
+            on_success=lambda _restored: self._after_recovery_change(),
+        )
+
+    def delete_recovery_point(self, point: RecoveryPoint) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+        self._submit(
+            repository.path,
+            lambda: self._recovery_manager(repository).delete(point),
+            write=True,
+            label="正在删除恢复记录",
+            success_message="恢复记录已删除",
+            on_success=lambda _result: self.load_recovery_points(),
+        )
+
+    def run_fsck(self) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+        self._submit(
+            repository.path,
+            repository.fsck,
+            write=False,
+            label="正在检查仓库完整性",
+            success_message="完整性检查完成",
+            on_success=lambda text: self.diagnostic_ready.emit(
+                "仓库完整性检查",
+                text or "未发现问题。",
+            ),
+        )
+
+    def run_gc(self) -> None:
+        self._run_write("正在优化仓库", lambda repo: repo.gc())
+
+    def worktree_add(
+        self,
+        path: Path,
+        branch: str,
+        *,
+        create_branch: bool,
+    ) -> None:
+        self._run_write(
+            "正在创建 Worktree",
+            lambda repo: repo.worktree_add(
+                path,
+                branch,
+                create_branch=create_branch,
+            ),
+        )
+
+    def worktree_remove(self, path: Path, *, force: bool = False) -> None:
+        self._run_write(
+            "正在移除 Worktree",
+            lambda repo: repo.worktree_remove(path, force=force),
+        )
+
+    def submodule_update(self) -> None:
+        self._run_write(
+            "正在更新子模块",
+            lambda repo: repo.submodule_update(),
+        )
+
+    def lfs_track(self, pattern: str) -> None:
+        self._run_write(
+            "正在添加 LFS 规则",
+            lambda repo: repo.lfs_track(pattern),
+        )
+
+    def lfs_pull(self) -> None:
+        self._run_write("正在拉取 LFS 对象", lambda repo: repo.lfs_pull())
+
+    def create_patch(self, revisions: str, destination: Path) -> None:
+        self._run_write(
+            "正在导出补丁",
+            lambda repo: repo.create_patch(revisions, destination),
+        )
+
+    def apply_patch(self, patch_path: Path) -> None:
+        self._run_write(
+            "正在应用补丁",
+            lambda repo: repo.apply_patch(patch_path),
+        )
+
     def update_settings(self, settings: AppSettings) -> None:
         self.settings = settings
         self.settings_store.save(settings)
@@ -291,7 +498,7 @@ class AppController(QObject):
         if self._shutting_down:
             return
         self._shutting_down = True
-        self.task_queue.shutdown(wait=False)
+        self.task_queue.shutdown(wait=True)
 
     def _accept_repository(self, repository: Repository) -> None:
         self.repository = repository
@@ -322,6 +529,13 @@ class AppController(QObject):
             label=label,
             on_success=receiver,
         )
+
+    def _recovery_manager(self, repository: Repository) -> RecoveryManager:
+        return RecoveryManager(repository, self.recovery_root)
+
+    def _after_recovery_change(self) -> None:
+        self.refresh()
+        self.load_recovery_points()
 
     def _run_write(
         self,

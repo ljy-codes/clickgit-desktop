@@ -340,6 +340,103 @@ class RepositoryIntegrationTests(unittest.TestCase):
         with self.assertRaises(GitCommandError):
             repository.current_branch()
 
+    def test_reflog_reset_clean_preview_and_integrity_checks(self) -> None:
+        repository = self.create_repository()
+        tracked = repository.path / "tracked.txt"
+        tracked.write_text("one\n", encoding="utf-8")
+        repository.stage(["tracked.txt"])
+        first = repository.commit("first")
+        tracked.write_text("two\n", encoding="utf-8")
+        repository.stage(["tracked.txt"])
+        repository.commit("second")
+        untracked = repository.path / "temporary.log"
+        untracked.write_text("temporary\n", encoding="utf-8")
+
+        self.assertIn("temporary.log", repository.clean_preview())
+        self.assertTrue(repository.reflog())
+        repository.reset(first.oid, mode="hard")
+
+        self.assertEqual(tracked.read_text(encoding="utf-8"), "one\n")
+        self.assertEqual(repository.fsck(), "")
+        repository.gc()
+        with self.assertRaises(ValueError):
+            repository.reset("HEAD", mode="destroy-everything")
+
+    def test_worktree_create_list_and_remove(self) -> None:
+        repository = self.create_repository()
+        tracked = repository.path / "tracked.txt"
+        tracked.write_text("base\n", encoding="utf-8")
+        repository.stage(["tracked.txt"])
+        repository.commit("base")
+        worktree_path = self.root / "feature worktree"
+
+        repository.worktree_add(
+            worktree_path,
+            "feature-worktree",
+            create_branch=True,
+        )
+        worktrees = repository.worktrees()
+
+        self.assertIn(repository.path, {item.path for item in worktrees})
+        self.assertIn(worktree_path.resolve(), {item.path for item in worktrees})
+        repository.worktree_remove(worktree_path)
+        self.assertFalse(worktree_path.exists())
+
+    def test_create_and_apply_mailbox_patch(self) -> None:
+        source = self.create_repository("patch-source")
+        tracked = source.path / "patch.txt"
+        tracked.write_text("base\n", encoding="utf-8")
+        source.stage(["patch.txt"])
+        source.commit("base")
+        destination = Repository.clone(
+            str(source.path),
+            self.root / "patch-destination",
+            self.runner,
+        )
+        destination.configure_identity("ClickGit Test", "clickgit@example.com")
+
+        tracked.write_text("patched\n", encoding="utf-8")
+        source.stage(["patch.txt"])
+        source.commit("patch change")
+        patch_path = self.root / "patches" / "change.patch"
+        source.create_patch("HEAD~1..HEAD", patch_path)
+        destination.apply_patch(patch_path)
+
+        self.assertEqual(
+            (destination.path / "patch.txt").read_text(encoding="utf-8"),
+            "patched\n",
+        )
+        self.assertEqual(destination.history(limit=1)[0].subject, "patch change")
+
+    def test_conflict_versions_can_be_edited_and_marked_resolved(self) -> None:
+        repository = self.create_repository()
+        file_path = repository.path / "conflict.txt"
+        file_path.write_text("base\n", encoding="utf-8")
+        repository.stage(["conflict.txt"])
+        repository.commit("base")
+        repository.create_branch("feature")
+        repository.checkout("feature")
+        file_path.write_text("feature\n", encoding="utf-8")
+        repository.stage(["conflict.txt"])
+        repository.commit("feature")
+        repository.checkout("main")
+        file_path.write_text("main\n", encoding="utf-8")
+        repository.stage(["conflict.txt"])
+        repository.commit("main")
+
+        with self.assertRaises(OperationConflict):
+            repository.merge("feature")
+
+        versions = repository.conflict_versions("conflict.txt")
+        self.assertEqual(versions.base, "base\n")
+        self.assertEqual(versions.ours, "main\n")
+        self.assertEqual(versions.theirs, "feature\n")
+        repository.resolve_conflict("conflict.txt", "resolved\n")
+
+        self.assertFalse(repository.conflicted_files())
+        repository.continue_merge()
+        self.assertEqual(file_path.read_text(encoding="utf-8"), "resolved\n")
+
 
 if __name__ == "__main__":
     unittest.main()

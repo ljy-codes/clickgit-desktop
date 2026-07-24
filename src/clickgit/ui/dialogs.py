@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -236,6 +238,129 @@ class SettingsDialog(QDialog):
         )
         if path:
             self.editor_edit.setText(path)
+
+
+class ResetDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("回退到指定提交")
+        layout = QFormLayout(self)
+        self.target_edit = QLineEdit("HEAD~1")
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("软回退（保留暂存区和文件）", "soft")
+        self.mode_combo.addItem("混合回退（保留文件）", "mixed")
+        self.mode_combo.addItem("硬回退（覆盖文件）", "hard")
+        layout.addRow("目标提交", self.target_edit)
+        layout.addRow("回退方式", self.mode_combo)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("下一步")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        buttons.accepted.connect(self._validate)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    @property
+    def values(self) -> tuple[str, str]:
+        return (
+            self.target_edit.text().strip(),
+            str(self.mode_combo.currentData()),
+        )
+
+    def _validate(self) -> None:
+        if not self.target_edit.text().strip():
+            QMessageBox.warning(self, "目标为空", "请输入提交哈希或引用。")
+            return
+        self.accept()
+
+
+class CleanPreviewDialog(QDialog):
+    def __init__(self, paths: list[str], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("清理未跟踪文件")
+        self.resize(680, 480)
+        layout = QVBoxLayout(self)
+        warning = QLabel(
+            "选中的文件不会直接删除，而是移入 ClickGit 恢复中心。"
+        )
+        warning.setStyleSheet("color: #8a4b16;")
+        self.path_list = QListWidget()
+        for path in paths:
+            item = QListWidgetItem(path)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            self.path_list.addItem(item)
+        layout.addWidget(warning)
+        layout.addWidget(self.path_list, 1)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
+            "移入恢复中心"
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @property
+    def selected_paths(self) -> list[str]:
+        return [
+            self.path_list.item(index).text()
+            for index in range(self.path_list.count())
+            if self.path_list.item(index).checkState() == Qt.CheckState.Checked
+        ]
+
+
+class WorktreeDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("创建 Worktree")
+        self.setMinimumWidth(560)
+        layout = QFormLayout(self)
+        self.path_edit = QLineEdit()
+        browse = QPushButton("浏览...")
+        browse.clicked.connect(self._browse)
+        path_row = QHBoxLayout()
+        path_row.addWidget(self.path_edit, 1)
+        path_row.addWidget(browse)
+        self.branch_edit = QLineEdit()
+        self.create_branch = QCheckBox("同时创建新分支")
+        self.create_branch.setChecked(True)
+        layout.addRow("Worktree 目录", path_row)
+        layout.addRow("分支名称", self.branch_edit)
+        layout.addRow("", self.create_branch)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("创建")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        buttons.accepted.connect(self._validate)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    @property
+    def values(self) -> tuple[Path, str, bool]:
+        return (
+            Path(self.path_edit.text()).resolve(),
+            self.branch_edit.text().strip(),
+            self.create_branch.isChecked(),
+        )
+
+    def _browse(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "选择 Worktree 目录")
+        if path:
+            self.path_edit.setText(path)
+
+    def _validate(self) -> None:
+        if not self.path_edit.text().strip() or not self.branch_edit.text().strip():
+            QMessageBox.warning(self, "信息不完整", "请填写目录和分支名称。")
+            return
+        self.accept()
 
 
 class ConfirmDialog(QMessageBox):

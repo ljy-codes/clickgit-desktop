@@ -96,3 +96,31 @@ class GitResult:
     @property
     def stderr_text(self) -> str:
         return self.stderr.decode("utf-8", errors="replace")
+
+
+@dataclass(slots=True, frozen=True)
+class WorktreeInfo:
+    path: Path
+    head: str = ""
+    branch: str = ""
+    bare: bool = False
+    detached: bool = False
+    locked: str = ""
+    prunable: str = ""
+
+
+@dataclass(slots=True, frozen=True)
+class SubmoduleInfo:
+    path: str
+    oid: str
+    state: str
+    description: str = ""
+
+
+@dataclass(slots=True, frozen=True)
+class ConflictVersions:
+    path: str
+    base: str
+    ours: str
+    theirs: str
+    result: str

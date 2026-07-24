@@ -111,6 +111,60 @@ class RecoveryManager:
             return result.returncode == 0
         return False
 
+    def list_points(self) -> list[RecoveryPoint]:
+        if not self.recovery_root.exists():
+            return []
+        points: list[RecoveryPoint] = []
+        for manifest_path in self.recovery_root.glob("*/manifest.json"):
+            try:
+                resolved_manifest = manifest_path.resolve()
+                self._ensure_inside(resolved_manifest, self.recovery_root)
+                payload = json.loads(
+                    resolved_manifest.read_text(encoding="utf-8")
+                )
+                repository_path = Path(payload["repository_path"]).resolve()
+                if repository_path != self.repository.path:
+                    continue
+                points.append(
+                    RecoveryPoint(
+                        identifier=str(payload["identifier"]),
+                        kind=str(payload["kind"]),
+                        reason=str(payload.get("reason", "")),
+                        repository_path=repository_path,
+                        created_at=datetime.fromisoformat(
+                            str(payload["created_at"])
+                        ),
+                        manifest_path=resolved_manifest,
+                        ref_name=str(payload.get("ref_name", "")),
+                        files=tuple(
+                            str(item) for item in payload.get("files", [])
+                        ),
+                        _restore_callback=self.restore,
+                    )
+                )
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                OSError,
+                TypeError,
+                ValueError,
+                RecoveryPathError,
+            ):
+                continue
+        return sorted(points, key=lambda item: item.created_at, reverse=True)
+
+    def delete(self, point: RecoveryPoint) -> None:
+        if point.repository_path.resolve() != self.repository.path:
+            raise RecoveryPathError("Recovery point belongs to another repository")
+        point_root = point.manifest_path.parent.resolve()
+        self._ensure_inside(point_root, self.recovery_root)
+        if point.kind == "commit-graph" and point.ref_name:
+            self.repository.runner.run(
+                ["update-ref", "-d", point.ref_name],
+                cwd=self.repository.path,
+            )
+        shutil.rmtree(point_root)
+
     def _restore_quarantine(self, point: RecoveryPoint) -> bool:
         files_root = point.manifest_path.parent / "files"
         sources_and_destinations: list[tuple[Path, Path]] = []

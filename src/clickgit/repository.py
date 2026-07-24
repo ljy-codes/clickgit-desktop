@@ -8,13 +8,18 @@ from clickgit.git_runner import GitCommandError, GitRunner, redact_git_result
 from clickgit.models import (
     Branch,
     Commit,
+    ConflictVersions,
     FileChange,
     GitResult,
+    ReflogEntry,
     Remote,
     StashEntry,
+    SubmoduleInfo,
+    WorktreeInfo,
 )
 from clickgit.parsers import (
     parse_log_records,
+    parse_reflog,
     parse_stashes,
     parse_status_v2,
 )
@@ -345,6 +350,46 @@ class Repository:
     def conflicted_files(self) -> list[FileChange]:
         return [item for item in self.status() if item.conflicted]
 
+    def conflict_versions(self, path: str) -> ConflictVersions:
+        pathspec = self._validated_path(path)
+        result = self._run_bytes(["ls-files", "-u", "-z", "--", pathspec])
+        stage_oids: dict[int, str] = {}
+        for record in result.stdout.split(b"\0"):
+            if not record:
+                continue
+            metadata, separator, _record_path = record.partition(b"\t")
+            if not separator:
+                continue
+            fields = metadata.decode("ascii", errors="replace").split()
+            if len(fields) == 3:
+                stage_oids[int(fields[2])] = fields[1]
+
+        def blob_text(stage: int) -> str:
+            oid = stage_oids.get(stage)
+            if not oid:
+                return ""
+            return self._run_bytes(["cat-file", "blob", oid]).stdout_text
+
+        resolved_path = self._resolved_repository_path(path)
+        result_text = (
+            resolved_path.read_text(encoding="utf-8", errors="replace")
+            if resolved_path.exists()
+            else ""
+        )
+        return ConflictVersions(
+            path=path,
+            base=blob_text(1),
+            ours=blob_text(2),
+            theirs=blob_text(3),
+            result=result_text,
+        )
+
+    def resolve_conflict(self, path: str, result_text: str) -> None:
+        resolved_path = self._resolved_repository_path(path)
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_path.write_text(result_text, encoding="utf-8", newline="")
+        self.stage([path])
+
     def history(
         self,
         *,
@@ -369,6 +414,206 @@ class Repository:
                 return []
             raise GitCommandError(result)
         return parse_log_records(result.stdout)
+
+    def reflog(self, *, limit: int = 200) -> list[ReflogEntry]:
+        if limit < 1:
+            return []
+        result = self._run(
+            [
+                "reflog",
+                "show",
+                f"--max-count={limit}",
+                "--date=iso-strict",
+                "--format=%gD%x1f%H%x1f%cI%x1f%gs%x1e",
+            ]
+        )
+        return parse_reflog(result.stdout_text)
+
+    def reset(self, target: str, *, mode: str = "mixed") -> None:
+        if mode not in {"soft", "mixed", "hard"}:
+            raise ValueError(f"Unsupported reset mode: {mode}")
+        self._run(
+            [
+                "reset",
+                f"--{mode}",
+                self._validated_revision(target),
+            ]
+        )
+
+    def clean_preview(self, *, include_ignored: bool = False) -> list[str]:
+        commands = [["ls-files", "--others", "--exclude-standard", "-z"]]
+        if include_ignored:
+            commands.append(
+                [
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "-z",
+                ]
+            )
+        paths: dict[str, None] = {}
+        for args in commands:
+            result = self._run_bytes(args)
+            for raw_path in result.stdout.split(b"\0"):
+                if raw_path:
+                    paths[raw_path.decode("utf-8", errors="replace")] = None
+        return list(paths)
+
+    def fsck(self) -> str:
+        result = self._run(["fsck", "--no-progress"])
+        return "\n".join(
+            part
+            for part in (
+                result.stdout_text.strip(),
+                result.stderr_text.strip(),
+            )
+            if part
+        )
+
+    def gc(self) -> None:
+        self._run(["gc"])
+
+    def worktrees(self) -> list[WorktreeInfo]:
+        result = self._run_bytes(["worktree", "list", "--porcelain", "-z"])
+        worktrees: list[WorktreeInfo] = []
+        for raw_record in result.stdout.split(b"\0\0"):
+            fields: dict[str, str] = {}
+            flags: set[str] = set()
+            for raw_line in raw_record.split(b"\0"):
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8", errors="replace")
+                key, separator, value = line.partition(" ")
+                if separator:
+                    fields[key] = value
+                else:
+                    flags.add(key)
+            if "worktree" not in fields:
+                continue
+            branch = fields.get("branch", "")
+            prefix = "refs/heads/"
+            if branch.startswith(prefix):
+                branch = branch[len(prefix) :]
+            worktrees.append(
+                WorktreeInfo(
+                    path=Path(fields["worktree"]).resolve(),
+                    head=fields.get("HEAD", ""),
+                    branch=branch,
+                    bare="bare" in flags,
+                    detached="detached" in flags,
+                    locked=fields.get("locked", ""),
+                    prunable=fields.get("prunable", ""),
+                )
+            )
+        return worktrees
+
+    def worktree_add(
+        self,
+        path: Path,
+        branch: str,
+        *,
+        create_branch: bool = False,
+        start_point: str | None = None,
+    ) -> None:
+        destination = Path(path).resolve()
+        branch_name = self._validated_branch_name(branch)
+        args = ["worktree", "add"]
+        if create_branch:
+            args.extend(["-b", branch_name, str(destination)])
+            if start_point:
+                args.append(self._validated_revision(start_point))
+        else:
+            args.extend([str(destination), branch_name])
+        self._run(args)
+
+    def worktree_remove(self, path: Path, *, force: bool = False) -> None:
+        destination = Path(path).resolve()
+        args = ["worktree", "remove"]
+        if force:
+            args.append("--force")
+        args.append(str(destination))
+        self._run(args)
+
+    def worktree_prune(self) -> None:
+        self._run(["worktree", "prune"])
+
+    def submodules(self) -> list[SubmoduleInfo]:
+        result = self.runner.run(
+            ["submodule", "status", "--recursive"],
+            cwd=self.path,
+        )
+        if result.returncode != 0:
+            if not (self.path / ".gitmodules").exists():
+                return []
+            raise GitCommandError(result)
+        submodules: list[SubmoduleInfo] = []
+        for line in result.stdout_text.splitlines():
+            if len(line) < 42:
+                continue
+            marker = line[0]
+            oid = line[1:41]
+            remainder = line[42:]
+            path_text, _, description = remainder.partition(" ")
+            submodules.append(
+                SubmoduleInfo(
+                    path=path_text,
+                    oid=oid,
+                    state=marker,
+                    description=description.strip("()"),
+                )
+            )
+        return submodules
+
+    def submodule_update(
+        self,
+        *,
+        init: bool = True,
+        recursive: bool = True,
+    ) -> None:
+        args = ["submodule", "update"]
+        if init:
+            args.append("--init")
+        if recursive:
+            args.append("--recursive")
+        self._run(args)
+
+    def lfs_version(self) -> str | None:
+        result = self.runner.run(["lfs", "version"], cwd=self.path)
+        if result.returncode != 0:
+            return None
+        return result.stdout_text.strip()
+
+    def lfs_track(self, pattern: str) -> None:
+        self._reject_option_or_control(pattern, "LFS pattern")
+        self._run(["lfs", "track", "--", pattern])
+
+    def lfs_pull(self) -> None:
+        self._run(["lfs", "pull"])
+
+    def create_patch(self, revisions: str, destination: Path) -> Path:
+        revision_range = self._validated_revision(revisions)
+        result = self._run_bytes(
+            ["format-patch", "--stdout", "--binary", revision_range]
+        )
+        output_path = Path(destination).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output_path.with_suffix(output_path.suffix + ".tmp")
+        temporary.write_bytes(result.stdout)
+        temporary.replace(output_path)
+        return output_path
+
+    def apply_patch(self, patch_path: Path) -> None:
+        patch = Path(patch_path).resolve()
+        if not patch.is_file():
+            raise FileNotFoundError(patch)
+        self._run(["am", "--3way", str(patch)])
+
+    def continue_patch(self) -> None:
+        self._run(["-c", "core.editor=true", "am", "--continue"])
+
+    def abort_patch(self) -> None:
+        self._run(["am", "--abort"])
 
     def tags(self) -> list[str]:
         result = self._run(["tag", "--list", "--sort=-creatordate"])
@@ -521,18 +766,23 @@ class Repository:
         return [self._validated_path(path) for path in paths]
 
     def _validated_path(self, path: str) -> str:
+        resolved = self._resolved_repository_path(path)
+        relative = resolved.relative_to(self.path)
+        return f":(literal){relative.as_posix()}"
+
+    def _resolved_repository_path(self, path: str) -> Path:
         candidate = Path(path)
         if candidate.is_absolute():
             resolved = candidate.resolve()
         else:
             resolved = (self.path / candidate).resolve()
         try:
-            relative = resolved.relative_to(self.path)
+            resolved.relative_to(self.path)
         except ValueError as exc:
             raise UnsafeRepositoryPathError(
                 f"Path is outside repository: {path}"
             ) from exc
-        return f":(literal){relative.as_posix()}"
+        return resolved
 
     def _validated_branch_name(self, name: str) -> str:
         self._reject_option_or_control(name, "branch")

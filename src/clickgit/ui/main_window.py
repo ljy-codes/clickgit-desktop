@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -36,19 +38,36 @@ from PySide6.QtWidgets import (
 )
 
 from clickgit.app import AppController, RepositorySnapshot
-from clickgit.models import Branch, ChangeKind, Commit, FileChange, Remote, StashEntry
+from clickgit.models import (
+    Branch,
+    ChangeKind,
+    Commit,
+    ConflictVersions,
+    FileChange,
+    ReflogEntry,
+    Remote,
+    StashEntry,
+    SubmoduleInfo,
+    WorktreeInfo,
+)
+from clickgit.recovery import RecoveryPoint
+from clickgit.ui.conflict_editor import ConflictEditorDialog
 from clickgit.ui.dialogs import (
     BranchDialog,
+    CleanPreviewDialog,
     CloneDialog,
     ConfirmDialog,
     RemoteDialog,
+    ResetDialog,
     SettingsDialog,
     TagDialog,
+    WorktreeDialog,
 )
 
 
 FILE_ROLE = Qt.ItemDataRole.UserRole
 STAGED_ROLE = Qt.ItemDataRole.UserRole + 1
+CONFLICT_ROLE = Qt.ItemDataRole.UserRole + 2
 
 
 class MainWindow(QMainWindow):
@@ -257,6 +276,9 @@ class MainWindow(QMainWindow):
         self.change_tree.setAlternatingRowColors(True)
         self.change_tree.header().setStretchLastSection(True)
         self.change_tree.itemSelectionChanged.connect(self._preview_selected_file)
+        self.change_tree.itemDoubleClicked.connect(
+            self._open_conflict_editor_for_item
+        )
         file_actions = QHBoxLayout()
         self.stage_button = QPushButton("暂存")
         self.stage_button.clicked.connect(self._stage_selected)
@@ -485,8 +507,21 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(16, 14, 16, 12)
+        top = QHBoxLayout()
         title = QLabel("恢复中心")
         title.setObjectName("pageTitle")
+        refresh = QPushButton("刷新")
+        refresh.clicked.connect(self.controller.load_recovery_points)
+        restore = QPushButton("恢复所选")
+        restore.clicked.connect(self._restore_recovery_point)
+        delete = QPushButton("删除记录")
+        delete.setObjectName("dangerButton")
+        delete.clicked.connect(self._delete_recovery_point)
+        top.addWidget(title)
+        top.addStretch(1)
+        top.addWidget(refresh)
+        top.addWidget(restore)
+        top.addWidget(delete)
         subtitle = QLabel(
             "危险操作创建的恢复点和隔离文件将在这里集中管理。"
         )
@@ -495,8 +530,14 @@ class MainWindow(QMainWindow):
         self.recovery_list.setHorizontalHeaderLabels(
             ["时间", "仓库", "操作", "可恢复内容"]
         )
+        self.recovery_list.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.recovery_list.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
         self.recovery_list.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(title)
+        layout.addLayout(top)
         layout.addWidget(subtitle)
         layout.addWidget(self.recovery_list, 1)
         return page
@@ -513,15 +554,40 @@ class MainWindow(QMainWindow):
         warning.setStyleSheet("color: #8a4b16;")
         layout.addWidget(title)
         layout.addWidget(warning)
-        line = QFrame()
-        line.setObjectName("sectionLine")
-        line.setFrameShape(QFrame.Shape.HLine)
-        layout.addWidget(line)
-        sync_title = QLabel("远程与历史")
-        sync_title.setStyleSheet("font-weight: 600;")
+
+        tabs = QTabWidget()
+        history_tab = QWidget()
+        history_layout = QVBoxLayout(history_tab)
+        history_layout.setContentsMargins(8, 8, 8, 8)
         row = QHBoxLayout()
         force_push = QPushButton("安全强制推送")
         force_push.clicked.connect(self._force_push)
+        reset = QPushButton("回退到提交")
+        reset.clicked.connect(self._reset_repository)
+        clean = QPushButton("清理未跟踪文件")
+        clean.clicked.connect(self.controller.load_clean_preview)
+        export_patch = QPushButton("导出补丁")
+        export_patch.clicked.connect(self._export_patch)
+        apply_patch = QPushButton("应用补丁")
+        apply_patch.clicked.connect(self._apply_patch)
+        fsck = QPushButton("完整性检查")
+        fsck.clicked.connect(self.controller.run_fsck)
+        gc = QPushButton("优化仓库")
+        gc.clicked.connect(self.controller.run_gc)
+        for button in (
+            reset,
+            clean,
+            export_patch,
+            apply_patch,
+            fsck,
+            gc,
+            force_push,
+        ):
+            row.addWidget(button)
+        row.addStretch(1)
+        history_layout.addLayout(row)
+
+        operation_row = QHBoxLayout()
         continue_merge = QPushButton("继续合并")
         continue_merge.clicked.connect(self.controller.continue_merge)
         abort_merge = QPushButton("放弃合并")
@@ -531,17 +597,104 @@ class MainWindow(QMainWindow):
         abort_rebase = QPushButton("放弃变基")
         abort_rebase.clicked.connect(self._abort_rebase)
         for button in (
-            force_push,
             continue_merge,
             abort_merge,
             continue_rebase,
             abort_rebase,
         ):
-            row.addWidget(button)
-        row.addStretch(1)
-        layout.addWidget(sync_title)
-        layout.addLayout(row)
-        layout.addStretch(1)
+            operation_row.addWidget(button)
+        operation_row.addStretch(1)
+        history_layout.addLayout(operation_row)
+
+        reflog_title = QHBoxLayout()
+        reflog_title.addWidget(QLabel("Reflog"))
+        reflog_title.addStretch(1)
+        load_reflog = QPushButton("刷新 Reflog")
+        load_reflog.clicked.connect(self.controller.load_reflog)
+        reflog_title.addWidget(load_reflog)
+        history_layout.addLayout(reflog_title)
+        self.reflog_table = QTableWidget(0, 4)
+        self.reflog_table.setHorizontalHeaderLabels(
+            ["位置", "提交", "时间", "操作"]
+        )
+        self.reflog_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.reflog_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.reflog_table.horizontalHeader().setStretchLastSection(True)
+        history_layout.addWidget(self.reflog_table, 1)
+        tabs.addTab(history_tab, "安全与历史")
+
+        extensions_tab = QWidget()
+        extensions_layout = QVBoxLayout(extensions_tab)
+        extensions_layout.setContentsMargins(8, 8, 8, 8)
+        worktree_row = QHBoxLayout()
+        worktree_row.addWidget(QLabel("Worktree"))
+        worktree_row.addStretch(1)
+        add_worktree = QPushButton("创建 Worktree")
+        add_worktree.clicked.connect(self._add_worktree)
+        remove_worktree = QPushButton("移除 Worktree")
+        remove_worktree.clicked.connect(self._remove_worktree)
+        refresh_worktree = QPushButton("刷新")
+        refresh_worktree.clicked.connect(self.controller.load_worktrees)
+        worktree_row.addWidget(add_worktree)
+        worktree_row.addWidget(remove_worktree)
+        worktree_row.addWidget(refresh_worktree)
+        extensions_layout.addLayout(worktree_row)
+        self.worktree_table = QTableWidget(0, 4)
+        self.worktree_table.setHorizontalHeaderLabels(
+            ["目录", "分支", "提交", "状态"]
+        )
+        self.worktree_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.worktree_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.worktree_table.horizontalHeader().setStretchLastSection(True)
+        extensions_layout.addWidget(self.worktree_table, 1)
+
+        submodule_row = QHBoxLayout()
+        submodule_row.addWidget(QLabel("子模块"))
+        submodule_row.addStretch(1)
+        update_submodules = QPushButton("初始化并更新")
+        update_submodules.clicked.connect(self.controller.submodule_update)
+        refresh_submodules = QPushButton("刷新")
+        refresh_submodules.clicked.connect(self.controller.load_submodules)
+        submodule_row.addWidget(update_submodules)
+        submodule_row.addWidget(refresh_submodules)
+        extensions_layout.addLayout(submodule_row)
+        self.submodule_table = QTableWidget(0, 4)
+        self.submodule_table.setHorizontalHeaderLabels(
+            ["路径", "提交", "状态", "说明"]
+        )
+        self.submodule_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.submodule_table.horizontalHeader().setStretchLastSection(True)
+        extensions_layout.addWidget(self.submodule_table, 1)
+
+        lfs_row = QHBoxLayout()
+        lfs_row.addWidget(QLabel("Git LFS"))
+        lfs_pattern = QLineEdit()
+        lfs_pattern.setPlaceholderText("例如 *.psd")
+        lfs_pattern.setMaximumWidth(260)
+        track_lfs = QPushButton("添加跟踪规则")
+        track_lfs.clicked.connect(
+            lambda: self._track_lfs_pattern(lfs_pattern)
+        )
+        pull_lfs = QPushButton("拉取 LFS 对象")
+        pull_lfs.clicked.connect(self.controller.lfs_pull)
+        lfs_row.addWidget(lfs_pattern)
+        lfs_row.addWidget(track_lfs)
+        lfs_row.addWidget(pull_lfs)
+        lfs_row.addStretch(1)
+        extensions_layout.addLayout(lfs_row)
+        tabs.addTab(extensions_tab, "Worktree / 子模块 / LFS")
+
+        layout.addWidget(tabs, 1)
         return page
 
     def _build_settings_page(self) -> QWidget:
@@ -586,6 +739,15 @@ class MainWindow(QMainWindow):
         self.controller.tags_ready.connect(self._apply_tags)
         self.controller.stashes_ready.connect(self._apply_stashes)
         self.controller.remotes_ready.connect(self._apply_remotes)
+        self.controller.reflog_ready.connect(self._apply_reflog)
+        self.controller.recovery_ready.connect(self._apply_recovery_points)
+        self.controller.clean_preview_ready.connect(self._show_clean_preview)
+        self.controller.worktrees_ready.connect(self._apply_worktrees)
+        self.controller.submodules_ready.connect(self._apply_submodules)
+        self.controller.conflict_versions_ready.connect(
+            self._show_conflict_editor
+        )
+        self.controller.diagnostic_ready.connect(self._show_diagnostic)
         self.controller.diff_ready.connect(self._apply_diff)
         self.controller.busy_changed.connect(self._set_busy)
         self.controller.operation_started.connect(self.task_label.setText)
@@ -671,6 +833,142 @@ class MainWindow(QMainWindow):
                 self.remote_table.setItem(row, column, item)
         self.remote_table.resizeColumnsToContents()
 
+    @Slot(object)
+    def _apply_reflog(self, entries: list[ReflogEntry]) -> None:
+        self.reflog_table.setRowCount(len(entries))
+        for row, entry in enumerate(entries):
+            values = (
+                entry.selector,
+                entry.oid[:10],
+                entry.created_at.astimezone().strftime("%Y-%m-%d %H:%M"),
+                entry.subject,
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(FILE_ROLE, entry)
+                self.reflog_table.setItem(row, column, item)
+        self.reflog_table.resizeColumnsToContents()
+        self.reflog_table.horizontalHeader().setStretchLastSection(True)
+
+    @Slot(object)
+    def _apply_recovery_points(self, points: list[RecoveryPoint]) -> None:
+        self.recovery_list.setRowCount(len(points))
+        reason_labels = {
+            "hard-reset": "硬回退",
+            "mixed-reset": "混合回退",
+            "soft-reset": "软回退",
+            "clean": "清理未跟踪文件",
+        }
+        for row, point in enumerate(points):
+            content = (
+                f"{len(point.files)} 个文件"
+                if point.files
+                else point.ref_name
+            )
+            values = (
+                point.created_at.astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+                str(point.repository_path),
+                reason_labels.get(point.reason, point.reason),
+                content,
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(FILE_ROLE, point)
+                self.recovery_list.setItem(row, column, item)
+        self.recovery_list.resizeColumnsToContents()
+        self.recovery_list.horizontalHeader().setStretchLastSection(True)
+
+    @Slot(object)
+    def _show_clean_preview(self, paths: list[str]) -> None:
+        if not paths:
+            QMessageBox.information(
+                self,
+                "无需清理",
+                "当前没有未跟踪文件。",
+            )
+            return
+        dialog = CleanPreviewDialog(paths, self)
+        if dialog.exec() and dialog.selected_paths:
+            self.controller.quarantine_untracked(dialog.selected_paths)
+
+    @Slot(object)
+    def _apply_worktrees(self, worktrees: list[WorktreeInfo]) -> None:
+        self.worktree_table.setRowCount(len(worktrees))
+        for row, worktree in enumerate(worktrees):
+            if worktree.bare:
+                state = "裸仓库"
+            elif worktree.detached:
+                state = "分离头指针"
+            elif worktree.locked:
+                state = f"已锁定：{worktree.locked}"
+            elif worktree.prunable:
+                state = f"可清理：{worktree.prunable}"
+            else:
+                state = "正常"
+            values = (
+                str(worktree.path),
+                worktree.branch,
+                worktree.head[:10],
+                state,
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(FILE_ROLE, worktree)
+                self.worktree_table.setItem(row, column, item)
+        self.worktree_table.resizeColumnsToContents()
+        self.worktree_table.horizontalHeader().setStretchLastSection(True)
+
+    @Slot(object)
+    def _apply_submodules(self, submodules: list[SubmoduleInfo]) -> None:
+        self.submodule_table.setRowCount(len(submodules))
+        state_labels = {
+            " ": "正常",
+            "-": "未初始化",
+            "+": "提交不一致",
+            "U": "冲突",
+        }
+        for row, submodule in enumerate(submodules):
+            values = (
+                submodule.path,
+                submodule.oid[:10],
+                state_labels.get(submodule.state, submodule.state),
+                submodule.description,
+            )
+            for column, value in enumerate(values):
+                self.submodule_table.setItem(
+                    row,
+                    column,
+                    QTableWidgetItem(value),
+                )
+        self.submodule_table.resizeColumnsToContents()
+        self.submodule_table.horizontalHeader().setStretchLastSection(True)
+
+    @Slot(object)
+    def _show_conflict_editor(self, versions: ConflictVersions) -> None:
+        dialog = ConflictEditorDialog(
+            file_path=versions.path,
+            base_text=versions.base,
+            ours_text=versions.ours,
+            theirs_text=versions.theirs,
+            result_text=versions.result,
+            parent=self,
+        )
+        if dialog.exec():
+            self.controller.resolve_conflict(
+                versions.path,
+                dialog.result_text(),
+            )
+
+    @Slot(str, str)
+    def _show_diagnostic(self, title: str, text: str) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(title)
+        box.setDetailedText(text)
+        box.setInformativeText(text if len(text) < 240 else "检查已完成。")
+        box.exec()
+
     @Slot(str, str, bool)
     def _apply_diff(self, text: str, path: str, staged: bool) -> None:
         area = "暂存区" if staged else "工作区"
@@ -754,6 +1052,12 @@ class MainWindow(QMainWindow):
             self.controller.load_stashes()
         elif row == 5:
             self.controller.load_remotes()
+        elif row == 6:
+            self.controller.load_recovery_points()
+        elif row == 7:
+            self.controller.load_reflog()
+            self.controller.load_worktrees()
+            self.controller.load_submodules()
 
     def _populate_changes(self, changes: tuple[FileChange, ...]) -> None:
         self.change_tree.clear()
@@ -769,6 +1073,7 @@ class MainWindow(QMainWindow):
             )
             item.setData(0, FILE_ROLE, change.path)
             item.setData(0, STAGED_ROLE, change.staged)
+            item.setData(0, CONFLICT_ROLE, change.conflicted)
             item.setToolTip(1, change.path)
             if change.conflicted:
                 item.setForeground(0, QColor("#a32424"))
@@ -806,6 +1111,15 @@ class MainWindow(QMainWindow):
             str(item.data(0, FILE_ROLE)),
             staged=bool(item.data(0, STAGED_ROLE)),
         )
+
+    def _open_conflict_editor_for_item(
+        self,
+        item: QTreeWidgetItem,
+        _column: int,
+    ) -> None:
+        if item.parent() is None or not item.data(0, CONFLICT_ROLE):
+            return
+        self.controller.load_conflict_versions(str(item.data(0, FILE_ROLE)))
 
     def _selected_change_items(self) -> list[QTreeWidgetItem]:
         return [
@@ -1024,6 +1338,122 @@ class MainWindow(QMainWindow):
             danger=True,
         ):
             self.controller.remove_remote(remote.name)
+
+    def _selected_recovery_point(self) -> RecoveryPoint | None:
+        row = self.recovery_list.currentRow()
+        item = self.recovery_list.item(row, 0) if row >= 0 else None
+        point = item.data(FILE_ROLE) if item else None
+        return point if isinstance(point, RecoveryPoint) else None
+
+    def _restore_recovery_point(self) -> None:
+        point = self._selected_recovery_point()
+        if point and ConfirmDialog.ask(
+            self,
+            title="恢复内容",
+            text="确认恢复所选记录？",
+            detail=(
+                "提交恢复点会创建一个新分支；隔离文件会移回原目录。"
+            ),
+        ):
+            self.controller.restore_recovery_point(point)
+
+    def _delete_recovery_point(self) -> None:
+        point = self._selected_recovery_point()
+        if point and ConfirmDialog.ask(
+            self,
+            title="删除恢复记录",
+            text="确认永久删除所选恢复记录？",
+            detail="删除后将无法再通过 ClickGit 恢复这些内容。",
+            danger=True,
+        ):
+            self.controller.delete_recovery_point(point)
+
+    def _reset_repository(self) -> None:
+        dialog = ResetDialog(self)
+        if not dialog.exec():
+            return
+        target, mode = dialog.values
+        descriptions = {
+            "soft": "保留暂存区和工作区文件",
+            "mixed": "重置暂存区，保留工作区文件",
+            "hard": "覆盖暂存区和工作区文件",
+        }
+        if ConfirmDialog.ask(
+            self,
+            title="确认回退",
+            text=f"确认以“{mode}”方式回退到 {target}？",
+            detail=(
+                f"{descriptions[mode]}。执行前会创建 ClickGit 恢复点。"
+            ),
+            danger=mode == "hard",
+        ):
+            self.controller.reset(target, mode=mode)
+
+    def _export_patch(self) -> None:
+        revisions, accepted = QInputDialog.getText(
+            self,
+            "导出补丁",
+            "提交范围：",
+            text="HEAD~1..HEAD",
+        )
+        if not accepted or not revisions.strip():
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存补丁",
+            "clickgit-change.patch",
+            "Git 补丁 (*.patch);;所有文件 (*.*)",
+        )
+        if path:
+            self.controller.create_patch(revisions.strip(), Path(path))
+
+    def _apply_patch(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择补丁文件",
+            filter="Git 补丁 (*.patch *.mbox);;所有文件 (*.*)",
+        )
+        if path and ConfirmDialog.ask(
+            self,
+            title="应用补丁",
+            text=f"确认应用补丁“{Path(path).name}”？",
+        ):
+            self.controller.apply_patch(Path(path))
+
+    def _add_worktree(self) -> None:
+        dialog = WorktreeDialog(self)
+        if dialog.exec():
+            path, branch, create_branch = dialog.values
+            self.controller.worktree_add(
+                path,
+                branch,
+                create_branch=create_branch,
+            )
+
+    def _selected_worktree(self) -> WorktreeInfo | None:
+        row = self.worktree_table.currentRow()
+        item = self.worktree_table.item(row, 0) if row >= 0 else None
+        worktree = item.data(FILE_ROLE) if item else None
+        return worktree if isinstance(worktree, WorktreeInfo) else None
+
+    def _remove_worktree(self) -> None:
+        worktree = self._selected_worktree()
+        if not worktree or worktree.path == self.repository_path:
+            return
+        if ConfirmDialog.ask(
+            self,
+            title="移除 Worktree",
+            text=f"确认移除“{worktree.path}”？",
+            detail="存在未提交修改时 Git 会拒绝移除。",
+            danger=True,
+        ):
+            self.controller.worktree_remove(worktree.path)
+
+    def _track_lfs_pattern(self, pattern_edit: QLineEdit) -> None:
+        pattern = pattern_edit.text().strip()
+        if pattern:
+            self.controller.lfs_track(pattern)
+            pattern_edit.clear()
 
     def _force_push(self) -> None:
         if ConfirmDialog.ask(
