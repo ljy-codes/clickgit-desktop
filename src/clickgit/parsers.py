@@ -132,6 +132,7 @@ def parse_branches(raw: str) -> list[Branch]:
 def parse_log_records(raw: bytes) -> list[Commit]:
     commits: list[Commit] = []
     for record in raw.decode("utf-8", errors="replace").split("\x1e"):
+        record = record.lstrip("\r\n")
         if not record:
             continue
         fields = record.split("\x1f")
@@ -200,6 +201,7 @@ def parse_reflog(raw: str) -> list[ReflogEntry]:
 def _parse_delimited_records(raw: str, field_count: int) -> list[list[str]]:
     records: list[list[str]] = []
     for record in raw.split("\x1e"):
+        record = record.lstrip("\r\n")
         if not record:
             continue
         fields = record.split("\x1f")

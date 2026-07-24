@@ -16,6 +16,13 @@ class GitRunnerError(RuntimeError):
     pass
 
 
+class GitCommandError(GitRunnerError):
+    def __init__(self, result: GitResult) -> None:
+        message = result.stderr_text.strip() or result.stdout_text.strip()
+        super().__init__(redact_secrets(message or "Git command failed"))
+        self.result = result
+
+
 class GitTimeoutError(GitRunnerError):
     def __init__(self, command: tuple[str, ...], timeout: float) -> None:
         super().__init__(f"Git operation timed out after {timeout:g} seconds")
