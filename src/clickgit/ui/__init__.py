@@ -1,0 +1,2 @@
+"""ClickGit desktop user interface."""
+
