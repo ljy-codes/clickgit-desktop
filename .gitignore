@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+build/
+dist/
+runtime/git/
+downloads/
+
+.coverage
+.pytest_cache/
+
+*.log
+*.tmp
