@@ -363,6 +363,13 @@ class AppController(QObject):
             return
 
         def protected_reset() -> RecoveryPoint:
+            if mode not in {"soft", "mixed", "hard"}:
+                raise ValueError(f"不支持的回退模式：{mode}")
+            if mode == "hard" and repository.status():
+                raise RuntimeError(
+                    "工作区存在未提交改动，不能执行硬回退。"
+                    "请先提交、贮藏或处理这些改动。"
+                )
             manager = self._recovery_manager(repository)
             point = manager.protect_commit_graph(f"{mode}-reset")
             repository.reset(target, mode=mode)
@@ -400,13 +407,21 @@ class AppController(QObject):
         repository = self.repository
         if repository is None:
             return
+
+        def restore() -> RecoveryPoint:
+            if not point.restore():
+                raise RuntimeError(
+                    "恢复点未恢复任何内容，目标文件可能已经存在。"
+                )
+            return point
+
         self._submit(
             repository.path,
-            point.restore,
+            restore,
             write=True,
             label="正在恢复内容",
             success_message="恢复完成",
-            on_success=lambda _restored: self._after_recovery_change(),
+            on_success=lambda _point: self._after_recovery_change(),
         )
 
     def delete_recovery_point(self, point: RecoveryPoint) -> None:
