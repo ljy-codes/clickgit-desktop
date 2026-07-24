@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clickgit"
+version = "0.1.0"
+description = "A click-only Git desktop client for Windows"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6==6.10.3",
+]
+
+[project.scripts]
+clickgit = "clickgit.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
