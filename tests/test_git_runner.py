@@ -5,7 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from clickgit.git_runner import GitRunner, GitTimeoutError, redact_secrets
+from clickgit.git_runner import (
+    GitCommandError,
+    GitRunner,
+    GitTimeoutError,
+    redact_secrets,
+)
+from clickgit.models import GitResult
 
 
 class GitRunnerTests(unittest.TestCase):
@@ -70,6 +76,28 @@ class GitRunnerTests(unittest.TestCase):
         for secret in ("secret", "abc123", "hunter2", "bearer-secret"):
             self.assertNotIn(secret, redacted)
         self.assertIn("***", redacted)
+
+    def test_command_error_does_not_expose_raw_secrets_in_result(self) -> None:
+        result = GitResult(
+            command=(
+                "git",
+                "clone",
+                "https://user:secret@example.com/repo.git",
+            ),
+            cwd=self.cwd,
+            returncode=1,
+            stdout=b"token=abc123",
+            stderr=b"Authorization: Bearer bearer-secret",
+            duration_seconds=0.1,
+        )
+
+        error = GitCommandError(result)
+        exposed = " ".join(error.result.command)
+        exposed += error.result.stdout_text
+        exposed += error.result.stderr_text
+
+        for secret in ("secret", "abc123", "bearer-secret"):
+            self.assertNotIn(secret, exposed)
 
 
 if __name__ == "__main__":

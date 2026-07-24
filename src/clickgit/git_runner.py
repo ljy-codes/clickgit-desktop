@@ -18,9 +18,13 @@ class GitRunnerError(RuntimeError):
 
 class GitCommandError(GitRunnerError):
     def __init__(self, result: GitResult) -> None:
-        message = result.stderr_text.strip() or result.stdout_text.strip()
-        super().__init__(redact_secrets(message or "Git command failed"))
-        self.result = result
+        safe_result = redact_git_result(result)
+        message = (
+            safe_result.stderr_text.strip()
+            or safe_result.stdout_text.strip()
+        )
+        super().__init__(message or "Git command failed")
+        self.result = safe_result
 
 
 class GitTimeoutError(GitRunnerError):
@@ -117,3 +121,14 @@ def redact_secrets(text: str) -> str:
     redacted = _URL_CREDENTIALS.sub(r"\1***\3", text)
     redacted = _ASSIGNMENT_SECRET.sub(r"\1=***", redacted)
     return _AUTHORIZATION.sub(r"\1***", redacted)
+
+
+def redact_git_result(result: GitResult) -> GitResult:
+    return GitResult(
+        command=tuple(redact_secrets(argument) for argument in result.command),
+        cwd=result.cwd,
+        returncode=result.returncode,
+        stdout=redact_secrets(result.stdout_text).encode("utf-8"),
+        stderr=redact_secrets(result.stderr_text).encode("utf-8"),
+        duration_seconds=result.duration_seconds,
+    )

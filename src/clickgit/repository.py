@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from clickgit.git_runner import GitCommandError, GitRunner
+from clickgit.git_runner import GitCommandError, GitRunner, redact_git_result
 from clickgit.models import (
     Branch,
     Commit,
@@ -14,7 +15,6 @@ from clickgit.models import (
 )
 from clickgit.parsers import (
     parse_log_records,
-    parse_remotes,
     parse_stashes,
     parse_status_v2,
 )
@@ -32,25 +32,38 @@ class UnsafeRepositoryPathError(RepositoryError):
     pass
 
 
+class InvalidGitNameError(RepositoryError, ValueError):
+    pass
+
+
 class OperationConflict(RepositoryError):
     def __init__(self, operation: str, result: GitResult) -> None:
         super().__init__(f"{operation} produced conflicts")
         self.operation = operation
-        self.result = result
+        self.result = redact_git_result(result)
 
 
 class Repository:
     def __init__(self, path: Path, runner: GitRunner | None = None) -> None:
-        self.path = Path(path).resolve()
         self.runner = runner or GitRunner()
+        requested_path = Path(path).resolve()
         probe = self.runner.run(
-            ["rev-parse", "--is-inside-work-tree", "--is-bare-repository"],
-            cwd=self.path,
+            ["rev-parse", "--is-bare-repository"],
+            cwd=requested_path,
         )
         if probe.returncode != 0:
             raise InvalidRepositoryError(probe.stderr_text.strip())
-        lines = probe.stdout_text.splitlines()
-        self.is_bare = bool(lines and lines[-1].strip() == "true")
+        self.is_bare = probe.stdout_text.strip() == "true"
+        root_argument = (
+            "--absolute-git-dir" if self.is_bare else "--show-toplevel"
+        )
+        root_result = self.runner.run(
+            ["rev-parse", root_argument],
+            cwd=requested_path,
+        )
+        if root_result.returncode != 0:
+            raise InvalidRepositoryError(root_result.stderr_text.strip())
+        self.path = Path(root_result.stdout_text.strip()).resolve()
 
     @classmethod
     def init(
@@ -106,13 +119,22 @@ class Repository:
         )
         if result.returncode == 0:
             return result.stdout_text.strip()
+        head_result = self.runner.run(
+            ["rev-parse", "--verify", "HEAD"],
+            cwd=self.path,
+        )
+        if head_result.returncode != 0:
+            raise GitCommandError(head_result)
         return "(detached HEAD)"
 
     def head_oid(self) -> str:
         return self.rev_parse("HEAD")
 
     def rev_parse(self, revision: str) -> str:
-        return self._run(["rev-parse", "--verify", revision]).stdout_text.strip()
+        revision = self._validated_revision(revision)
+        return self._run(
+            ["rev-parse", "--verify", "--end-of-options", revision]
+        ).stdout_text.strip()
 
     def diff(self, path: str | None = None, *, staged: bool = False) -> str:
         args = ["diff", "--no-ext-diff", "--no-color"]
@@ -170,13 +192,17 @@ class Repository:
         remote: str | None = None,
         branch: str | None = None,
         *,
-        rebase: bool = False,
+        rebase: bool | None = None,
     ) -> None:
-        args = ["pull", "--rebase" if rebase else "--no-rebase"]
+        if branch is not None and remote is None:
+            raise ValueError("A remote is required when a branch is specified")
+        args = ["pull"]
+        if rebase is not None:
+            args.append("--rebase" if rebase else "--no-rebase")
         if remote:
-            args.append(remote)
+            args.append(self._validated_remote_name(remote))
         if branch:
-            args.append(branch)
+            args.append(self._validated_revision(branch))
         result = self.runner.run(args, cwd=self.path)
         self._raise_for_write_result("pull", result)
 
@@ -193,8 +219,14 @@ class Repository:
             args.append("--force-with-lease")
         if set_upstream:
             args.append("--set-upstream")
-        args.append(remote or "origin")
-        args.append(branch or "HEAD")
+            remote = remote or "origin"
+            branch = branch or "HEAD"
+        if branch is not None and remote is None:
+            raise ValueError("A remote is required when a branch is specified")
+        if remote is not None:
+            args.append(self._validated_remote_name(remote))
+        if branch is not None:
+            args.append(self._validated_revision(branch))
         self._run(args)
 
     def branches(self) -> list[Branch]:
@@ -243,34 +275,59 @@ class Repository:
         name: str,
         start_point: str | None = None,
     ) -> None:
-        args = ["branch", name]
+        args = ["branch", self._validated_branch_name(name)]
         if start_point:
-            args.append(start_point)
+            args.append(self._validated_revision(start_point))
         self._run(args)
 
     def checkout(self, name: str) -> None:
-        self._run(["switch", name])
+        self._run(["switch", self._validated_branch_name(name)])
 
     def rename_branch(self, old: str, new: str) -> None:
-        self._run(["branch", "-m", old, new])
+        self._run(
+            [
+                "branch",
+                "-m",
+                self._validated_branch_name(old),
+                self._validated_branch_name(new),
+            ]
+        )
 
     def delete_branch(self, name: str, *, force: bool = False) -> None:
-        self._run(["branch", "-D" if force else "-d", name])
+        self._run(
+            [
+                "branch",
+                "-D" if force else "-d",
+                self._validated_branch_name(name),
+            ]
+        )
 
     def merge(self, name: str) -> None:
-        result = self.runner.run(["merge", "--no-edit", name], cwd=self.path)
+        result = self.runner.run(
+            ["merge", "--no-edit", self._validated_revision(name)],
+            cwd=self.path,
+        )
         self._raise_for_write_result("merge", result)
 
     def rebase(self, name: str) -> None:
-        result = self.runner.run(["rebase", name], cwd=self.path)
+        result = self.runner.run(
+            ["rebase", self._validated_revision(name)],
+            cwd=self.path,
+        )
         self._raise_for_write_result("rebase", result)
 
     def cherry_pick(self, oid: str) -> None:
-        result = self.runner.run(["cherry-pick", oid], cwd=self.path)
+        result = self.runner.run(
+            ["cherry-pick", self._validated_revision(oid)],
+            cwd=self.path,
+        )
         self._raise_for_write_result("cherry-pick", result)
 
     def revert(self, oid: str) -> None:
-        result = self.runner.run(["revert", "--no-edit", oid], cwd=self.path)
+        result = self.runner.run(
+            ["revert", "--no-edit", self._validated_revision(oid)],
+            cwd=self.path,
+        )
         self._raise_for_write_result("revert", result)
 
     def continue_merge(self) -> None:
@@ -280,7 +337,7 @@ class Repository:
         self._run(["merge", "--abort"])
 
     def continue_rebase(self) -> None:
-        self._run(["rebase", "--continue"])
+        self._run(["-c", "core.editor=true", "rebase", "--continue"])
 
     def abort_rebase(self) -> None:
         self._run(["rebase", "--abort"])
@@ -324,16 +381,17 @@ class Repository:
         message: str | None = None,
     ) -> None:
         args = ["tag"]
+        tag_name = self._validated_tag_name(name)
         if message:
-            args.extend(["-a", name, "-m", message])
+            args.extend(["-a", tag_name, "-m", message])
         else:
-            args.append(name)
+            args.append(tag_name)
         if target:
-            args.append(target)
+            args.append(self._validated_revision(target))
         self._run(args)
 
     def delete_tag(self, name: str) -> None:
-        self._run(["tag", "-d", name])
+        self._run(["tag", "-d", self._validated_tag_name(name)])
 
     def stashes(self) -> list[StashEntry]:
         result = self._run(
@@ -373,30 +431,71 @@ class Repository:
         self._run(args)
 
     def stash_apply(self, reference: str, *, pop: bool = False) -> None:
-        self._run(["stash", "pop" if pop else "apply", reference])
+        result = self.runner.run(
+            [
+                "stash",
+                "pop" if pop else "apply",
+                self._validated_stash_reference(reference),
+            ],
+            cwd=self.path,
+        )
+        self._raise_for_write_result("stash-pop" if pop else "stash-apply", result)
 
     def stash_drop(self, reference: str) -> None:
-        self._run(["stash", "drop", reference])
+        self._run(
+            ["stash", "drop", self._validated_stash_reference(reference)]
+        )
 
     def remotes(self) -> list[Remote]:
-        result = self._run(["remote", "-v"])
-        normalized: list[str] = []
-        for line in result.stdout_text.splitlines():
-            fields = line.split()
-            if len(fields) < 3:
-                continue
-            operation = fields[-1].strip("()")
-            normalized.append(f"{fields[0]}\t{operation}\t{fields[1]}")
-        return parse_remotes("\n".join(normalized))
+        names = [
+            line
+            for line in self._run(["remote"]).stdout_text.splitlines()
+            if line
+        ]
+        remotes: list[Remote] = []
+        for name in names:
+            fetch_result = self._run(["remote", "get-url", name])
+            push_result = self.runner.run(
+                ["remote", "get-url", "--push", name],
+                cwd=self.path,
+            )
+            fetch_url = fetch_result.stdout_text.rstrip("\r\n")
+            push_url = (
+                push_result.stdout_text.rstrip("\r\n")
+                if push_result.returncode == 0
+                else fetch_url
+            )
+            remotes.append(
+                Remote(
+                    name=name,
+                    fetch_url=fetch_url,
+                    push_url=push_url,
+                )
+            )
+        return remotes
 
     def add_remote(self, name: str, url: str) -> None:
-        self._run(["remote", "add", name, url])
+        self._run(
+            [
+                "remote",
+                "add",
+                self._validated_remote_name(name),
+                self._validated_url(url),
+            ]
+        )
 
     def set_remote_url(self, name: str, url: str) -> None:
-        self._run(["remote", "set-url", name, url])
+        self._run(
+            [
+                "remote",
+                "set-url",
+                self._validated_remote_name(name),
+                self._validated_url(url),
+            ]
+        )
 
     def remove_remote(self, name: str) -> None:
-        self._run(["remote", "remove", name])
+        self._run(["remote", "remove", self._validated_remote_name(name)])
 
     def _raise_for_write_result(
         self,
@@ -433,4 +532,64 @@ class Repository:
             raise UnsafeRepositoryPathError(
                 f"Path is outside repository: {path}"
             ) from exc
-        return relative.as_posix()
+        return f":(literal){relative.as_posix()}"
+
+    def _validated_branch_name(self, name: str) -> str:
+        self._reject_option_or_control(name, "branch")
+        result = self.runner.run(
+            ["check-ref-format", "--branch", name],
+            cwd=self.path,
+        )
+        if result.returncode != 0:
+            raise InvalidGitNameError(f"Invalid branch name: {name}")
+        return name
+
+    def _validated_tag_name(self, name: str) -> str:
+        self._reject_option_or_control(name, "tag")
+        result = self.runner.run(
+            ["check-ref-format", f"refs/tags/{name}"],
+            cwd=self.path,
+        )
+        if result.returncode != 0:
+            raise InvalidGitNameError(f"Invalid tag name: {name}")
+        return name
+
+    @staticmethod
+    def _validated_remote_name(name: str) -> str:
+        Repository._reject_option_or_control(name, "remote")
+        if (
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", name)
+            or ".." in name
+            or "@{" in name
+            or "//" in name
+            or name.endswith(("/", "."))
+        ):
+            raise InvalidGitNameError(f"Invalid remote name: {name}")
+        return name
+
+    @staticmethod
+    def _validated_revision(revision: str) -> str:
+        Repository._reject_option_or_control(revision, "revision")
+        return revision
+
+    @staticmethod
+    def _validated_stash_reference(reference: str) -> str:
+        if not re.fullmatch(r"stash@\{\d+\}", reference):
+            raise InvalidGitNameError(
+                f"Invalid stash reference: {reference}"
+            )
+        return reference
+
+    @staticmethod
+    def _validated_url(url: str) -> str:
+        Repository._reject_option_or_control(url, "remote URL")
+        return url
+
+    @staticmethod
+    def _reject_option_or_control(value: str, label: str) -> None:
+        if (
+            not value
+            or value.startswith("-")
+            or any(character in value for character in ("\0", "\r", "\n"))
+        ):
+            raise InvalidGitNameError(f"Invalid {label}: {value!r}")
