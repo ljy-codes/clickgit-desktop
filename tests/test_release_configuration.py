@@ -75,6 +75,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("gh release edit", workflow)
         self.assertIn("--draft", workflow)
         self.assertIn("--clobber", workflow)
+        self.assertIn("GH_REPO: ${{ github.repository }}", workflow)
         self.assertIn('VERSION="${{ inputs.version }}"', workflow)
         self.assertIn('VERSION="${VERSION%%-retry*}"', workflow)
 
