@@ -65,12 +65,12 @@ jobs:
       matrix:
         include:
           - label: macOS Apple Silicon
-            runner: macos-15-arm64
+            runner: macos-15
             python_arch: arm64
             artifact: macos-arm64
             archive: ClickGit-macOS-arm64.zip
           - label: macOS Intel
-            runner: macos-15
+            runner: macos-15-intel
             python_arch: x64
             artifact: macos-x64
             archive: ClickGit-macOS-x64.zip
