@@ -125,6 +125,7 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME#release-v}"
           fi
+          VERSION="${VERSION%%-retry*}"
           WINDOWS_TAG="windows-v${VERSION}"
           MAC_TAG="mac-v${VERSION}"
           WINDOWS_ASSET="release-assets/windows-x64/ClickGit-Windows-x64.zip"

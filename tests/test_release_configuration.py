@@ -76,6 +76,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("--draft", workflow)
         self.assertIn("--clobber", workflow)
         self.assertIn('VERSION="${{ inputs.version }}"', workflow)
+        self.assertIn('VERSION="${VERSION%%-retry*}"', workflow)
 
 
 if __name__ == "__main__":
