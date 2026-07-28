@@ -36,11 +36,15 @@ class ReleaseConfigurationTests(unittest.TestCase):
         script = (
             PROJECT_ROOT / "scripts" / "verify-macos.sh"
         ).read_text(encoding="utf-8")
+        verifier = (
+            PROJECT_ROOT / "scripts" / "verify_macos_report.py"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("Contents/MacOS/ClickGit", script)
         self.assertIn("--smoke-test", script)
-        self.assertIn("gui_started", script)
-        self.assertIn("git_returncode", script)
+        self.assertIn("verify_macos_report.py", script)
+        self.assertIn("gui_started", verifier)
+        self.assertIn("git_returncode", verifier)
 
     def test_release_workflow_builds_three_native_artifacts(self) -> None:
         workflow = (
@@ -48,6 +52,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('tags:\n      - "release-v*"', workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("version:", workflow)
         self.assertIn("contents: write", workflow)
         self.assertIn("windows-latest", workflow)
         self.assertIn("macos-15-arm64", workflow)
@@ -69,6 +75,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("gh release edit", workflow)
         self.assertIn("--draft", workflow)
         self.assertIn("--clobber", workflow)
+        self.assertIn('VERSION="${{ inputs.version }}"', workflow)
 
 
 if __name__ == "__main__":

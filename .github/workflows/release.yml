@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "release-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: true
+        default: "0.1.0"
 
 permissions:
   contents: write
@@ -114,7 +120,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="${GITHUB_REF_NAME#release-v}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#release-v}"
+          fi
           WINDOWS_TAG="windows-v${VERSION}"
           MAC_TAG="mac-v${VERSION}"
           WINDOWS_ASSET="release-assets/windows-x64/ClickGit-Windows-x64.zip"
