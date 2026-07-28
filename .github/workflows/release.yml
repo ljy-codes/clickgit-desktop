@@ -1,0 +1,146 @@
+name: Release ClickGit
+
+on:
+  push:
+    tags:
+      - "release-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x64:
+    name: Build Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: scripts/bootstrap.ps1
+
+      - name: Download PortableGit
+        shell: pwsh
+        run: scripts/download-portable-git.ps1
+
+      - name: Build and test Windows package
+        shell: pwsh
+        run: scripts/build.ps1
+
+      - name: Verify Windows package
+        shell: pwsh
+        run: scripts/verify-package.ps1
+
+      - name: Archive Windows package
+        shell: pwsh
+        run: |
+          $Archive = "build\ClickGit-Windows-x64.zip"
+          Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path "dist\ClickGit" -DestinationPath $Archive
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: build/ClickGit-Windows-x64.zip
+          if-no-files-found: error
+
+  macos:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            runner: macos-15-arm64
+            python_arch: arm64
+            artifact: macos-arm64
+            archive: ClickGit-macOS-arm64.zip
+          - label: macOS Intel
+            runner: macos-15
+            python_arch: x64
+            artifact: macos-x64
+            archive: ClickGit-macOS-x64.zip
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.python_arch }}
+          cache: pip
+
+      - name: Install build dependencies
+        run: python3 -m pip install -r requirements-dev.txt
+
+      - name: Build, test and verify macOS package
+        run: |
+          chmod +x scripts/build-macos.sh scripts/verify-macos.sh
+          PYTHON_BIN=python3 scripts/build-macos.sh
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Publish Windows and macOS releases
+    needs:
+      - windows-x64
+      - macos
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create releases and upload assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME#release-v}"
+          WINDOWS_TAG="windows-v${VERSION}"
+          MAC_TAG="mac-v${VERSION}"
+          WINDOWS_ASSET="release-assets/windows-x64/ClickGit-Windows-x64.zip"
+          MAC_ARM_ASSET="release-assets/macos-arm64/ClickGit-macOS-arm64.zip"
+          MAC_X64_ASSET="release-assets/macos-x64/ClickGit-macOS-x64.zip"
+
+          if ! gh release view "$WINDOWS_TAG" >/dev/null 2>&1; then
+            gh release create "$WINDOWS_TAG" \
+              --draft \
+              --target "$GITHUB_SHA" \
+              --title "ClickGit Windows v${VERSION}" \
+              --notes "Windows x64 便携版，解压后运行 ClickGit.exe。"
+          fi
+          if ! gh release view "$MAC_TAG" >/dev/null 2>&1; then
+            gh release create "$MAC_TAG" \
+              --draft \
+              --target "$GITHUB_SHA" \
+              --title "ClickGit macOS v${VERSION}" \
+              --notes "macOS 版本包含 Apple Silicon 与 Intel 两个安装包。"
+          fi
+
+          gh release upload "$WINDOWS_TAG" "$WINDOWS_ASSET" --clobber
+          gh release upload "$MAC_TAG" \
+            "$MAC_ARM_ASSET" \
+            "$MAC_X64_ASSET" \
+            --clobber
+
+          gh release edit "$WINDOWS_TAG" --draft=false
+          gh release edit "$MAC_TAG" --draft=false

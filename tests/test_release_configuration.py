@@ -42,6 +42,34 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("gui_started", script)
         self.assertIn("git_returncode", script)
 
+    def test_release_workflow_builds_three_native_artifacts(self) -> None:
+        workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('tags:\n      - "release-v*"', workflow)
+        self.assertIn("contents: write", workflow)
+        self.assertIn("windows-latest", workflow)
+        self.assertIn("macos-15-arm64", workflow)
+        self.assertIn("runner: macos-15\n", workflow)
+        self.assertNotIn("macos-15-intel", workflow)
+        self.assertIn("ClickGit-Windows-x64.zip", workflow)
+        self.assertIn("ClickGit-macOS-arm64.zip", workflow)
+        self.assertIn("ClickGit-macOS-x64.zip", workflow)
+
+    def test_release_workflow_creates_windows_and_mac_releases(self) -> None:
+        workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('WINDOWS_TAG="windows-v${VERSION}"', workflow)
+        self.assertIn('MAC_TAG="mac-v${VERSION}"', workflow)
+        self.assertIn("gh release create", workflow)
+        self.assertIn("gh release upload", workflow)
+        self.assertIn("gh release edit", workflow)
+        self.assertIn("--draft", workflow)
+        self.assertIn("--clobber", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

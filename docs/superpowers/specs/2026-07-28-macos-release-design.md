@@ -38,8 +38,8 @@ GitHub Actions 为 `v0.1.0` 自动构建和发布两个独立 Release。
 工作流使用三个独立构建任务：
 
 1. `windows-x64` 在 `windows-latest` 构建便携目录。
-2. `macos-arm64` 在 `macos-15` 构建 Apple Silicon 应用。
-3. `macos-x64` 在 `macos-15-intel` 构建 Intel 应用。
+2. `macos-arm64` 在 `macos-15-arm64` 构建 Apple Silicon 应用。
+3. `macos-x64` 在 `macos-15` 构建 Intel 应用。
 
 发布任务下载三个构建产物，使用仓库的 `GITHUB_TOKEN` 创建 Windows 和
 macOS 两个 Release。工作流只在 `release-v*` 标签上执行，并授予最小的
@@ -59,4 +59,3 @@ macOS 两个 Release。工作流只在 `release-v*` 标签上执行，并授予�
 - macOS 依赖系统 Git；如果系统找不到 Git，应用显示明确错误。
 - 未签名、未公证的 `.app` 可能被 macOS Gatekeeper 阻止首次启动。
 - Intel 和 Apple Silicon 分开构建，用户必须下载匹配 CPU 架构的附件。
-

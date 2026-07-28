@@ -111,7 +111,7 @@ Expected: all packaging configuration tests pass.
 - [ ] **Step 1: Add failing workflow assertions**
 
 Assert the workflow triggers on `release-v*`, uses Windows x64,
-`macos-15`, and `macos-15-intel`, uploads all three named ZIP files, grants
+`macos-15-arm64`, and `macos-15`, uploads all three named ZIP files, grants
 `contents: write`, and creates `windows-v$VERSION` and `mac-v$VERSION`.
 
 - [ ] **Step 2: Verify the workflow test fails**
@@ -184,4 +184,3 @@ three targets before creating `windows-v0.1.0` and `mac-v0.1.0`.
 
 Confirm the workflow succeeded and both Release tags contain the expected
 Windows x64, macOS arm64, and macOS x64 ZIP assets.
-
