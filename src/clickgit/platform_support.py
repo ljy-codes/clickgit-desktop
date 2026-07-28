@@ -34,6 +34,11 @@ def preferred_ui_font(platform_name: str | None = None) -> str:
     return "Noto Sans CJK SC"
 
 
+def preferred_git_locale(platform_name: str | None = None) -> str:
+    current_platform = platform_name or sys.platform
+    return "en_US.UTF-8" if current_platform == "darwin" else "C.UTF-8"
+
+
 def application_executable_dir() -> Path:
     if sys.platform == "win32":
         buffer = ctypes.create_unicode_buffer(32768)
@@ -45,4 +50,3 @@ def application_executable_dir() -> Path:
         if length:
             return Path(buffer.value).resolve().parent
     return Path(sys.executable).resolve().parent
-

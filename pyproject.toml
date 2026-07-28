@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "clickgit"
 version = "0.1.0"
-description = "A click-only Git desktop client for Windows"
+description = "A click-only Git desktop client for Windows and macOS"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,4 +20,3 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

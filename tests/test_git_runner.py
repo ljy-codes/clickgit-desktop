@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from clickgit.git_runner import (
     GitCommandError,
@@ -55,6 +56,21 @@ class GitRunnerTests(unittest.TestCase):
 
         self.assertEqual(result.stdout, b"ABC")
         self.assertEqual(result.stderr_text, "warning")
+
+    def test_runner_uses_macos_utf8_locale(self) -> None:
+        with patch("clickgit.git_runner.sys.platform", "darwin"):
+            result = self.runner.run(
+                [
+                    "-c",
+                    (
+                        "import os,sys;"
+                        "sys.stdout.write(os.environ['LC_ALL'])"
+                    ),
+                ],
+                cwd=self.cwd,
+            )
+
+        self.assertEqual(result.stdout_text, "en_US.UTF-8")
 
     def test_runner_raises_typed_timeout(self) -> None:
         with self.assertRaises(GitTimeoutError):

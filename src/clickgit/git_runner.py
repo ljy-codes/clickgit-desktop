@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from clickgit.models import GitResult
+from clickgit.platform_support import preferred_git_locale
 
 
 class GitRunnerError(RuntimeError):
@@ -78,8 +79,8 @@ class GitRunner:
         process_env.update(
             {
                 "GIT_TERMINAL_PROMPT": "0",
-                "LC_ALL": "C.UTF-8",
-                "LANG": "C.UTF-8",
+                "LC_ALL": preferred_git_locale(),
+                "LANG": preferred_git_locale(),
             }
         )
         if env:
