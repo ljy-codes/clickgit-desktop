@@ -60,7 +60,7 @@ class SshKeyService:
         for candidate in candidates:
             if candidate.is_file():
                 return cls(candidate)
-        raise FileNotFoundError("ssh-keygen.exe was not found")
+        raise FileNotFoundError("ssh-keygen was not found")
 
     def generate(
         self,

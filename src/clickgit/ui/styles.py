@@ -5,7 +5,7 @@ APP_STYLE = """
 QMainWindow, QWidget {
     background: #f4f6f8;
     color: #17212b;
-    font-family: "Microsoft YaHei UI", "Segoe UI";
+    font-family: "PingFang SC", "Microsoft YaHei UI", "Segoe UI";
     font-size: 13px;
 }
 QToolBar {

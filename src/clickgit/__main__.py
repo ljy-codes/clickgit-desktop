@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
-import ctypes
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
@@ -12,45 +10,24 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
 from clickgit.app import AppController
+from clickgit.git_runner import locate_git
+from clickgit.platform_support import (
+    application_data_dir,
+    application_executable_dir,
+    preferred_ui_font,
+)
 from clickgit.settings import SettingsStore
 from clickgit.ui.main_window import MainWindow
 from clickgit.ui.styles import APP_STYLE
 
 
-def application_data_dir() -> Path:
-    root = os.environ.get("APPDATA")
-    if root:
-        return Path(root) / "ClickGit"
-    return Path.home() / ".clickgit"
-
-
-def application_executable_dir() -> Path:
-    if sys.platform == "win32":
-        buffer = ctypes.create_unicode_buffer(32768)
-        length = ctypes.windll.kernel32.GetModuleFileNameW(
-            None,
-            buffer,
-            len(buffer),
-        )
-        if length:
-            return Path(buffer.value).resolve().parent
-    return Path(sys.executable).resolve().parent
-
-
-def bundled_git_executable() -> Path | str:
+def bundled_git_executable() -> Path:
     executable_root = application_executable_dir()
-    candidates = [
-        executable_root / "runtime" / "git" / "cmd" / "git.exe",
-        Path(__file__).resolve().parents[2]
-        / "runtime"
-        / "git"
-        / "cmd"
-        / "git.exe",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return "git"
+    source_root = Path(__file__).resolve().parents[2]
+    try:
+        return locate_git(executable_root)
+    except FileNotFoundError:
+        return locate_git(source_root)
 
 
 def write_diagnostic(report_path: Path, *, include_gui: bool = False) -> int:
@@ -77,7 +54,7 @@ def write_diagnostic(report_path: Path, *, include_gui: bool = False) -> int:
     if include_gui and completed.returncode == 0:
         app = QApplication.instance() or QApplication([])
         app.setStyle("Fusion")
-        app.setFont(QFont("Microsoft YaHei UI", 9))
+        app.setFont(QFont(preferred_ui_font(), 9))
         app.setStyleSheet(APP_STYLE)
         controller = AppController(
             settings_store=SettingsStore(
@@ -117,7 +94,7 @@ def main() -> int:
     app.setApplicationName("ClickGit")
     app.setOrganizationName("ClickGit")
     app.setStyle("Fusion")
-    app.setFont(QFont("Microsoft YaHei UI", 9))
+    app.setFont(QFont(preferred_ui_font(), 9))
     app.setStyleSheet(APP_STYLE)
     data_dir = application_data_dir()
     controller = AppController(

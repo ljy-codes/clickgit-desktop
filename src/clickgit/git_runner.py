@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from clickgit.models import GitResult
@@ -34,7 +34,11 @@ class GitTimeoutError(GitRunnerError):
         self.timeout = timeout
 
 
-def locate_git(application_root: Path | None = None) -> Path:
+def locate_git(
+    application_root: Path | None = None,
+    *,
+    path_lookup: Callable[[str], str | None] = shutil.which,
+) -> Path:
     configured = os.environ.get("CLICKGIT_GIT")
     if configured:
         candidate = Path(configured)
@@ -42,11 +46,15 @@ def locate_git(application_root: Path | None = None) -> Path:
             return candidate
 
     if application_root is not None:
-        bundled = application_root / "runtime" / "git" / "cmd" / "git.exe"
-        if bundled.is_file():
-            return bundled
+        bundled_candidates = [
+            application_root / "runtime" / "git" / "cmd" / "git.exe",
+            application_root / "runtime" / "git" / "bin" / "git",
+        ]
+        for bundled in bundled_candidates:
+            if bundled.is_file():
+                return bundled
 
-    discovered = shutil.which("git")
+    discovered = path_lookup("git")
     if discovered:
         return Path(discovered)
     raise FileNotFoundError("Git executable was not found")
