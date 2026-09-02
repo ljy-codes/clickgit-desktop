@@ -47,15 +47,16 @@ jobs:
       - name: Archive Windows package
         shell: pwsh
         run: |
-          $Archive = "build\ClickGit-Windows-x64.zip"
+          $Archive = "artifacts\package\ClickGit-Windows-x64.zip"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Archive) | Out-Null
           Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path "dist\ClickGit" -DestinationPath $Archive
+          Compress-Archive -Path "artifacts\publish\windows-x64\ClickGit" -DestinationPath $Archive
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
-          path: build/ClickGit-Windows-x64.zip
+          path: artifacts/package/ClickGit-Windows-x64.zip
           if-no-files-found: error
 
   macos:
@@ -98,7 +99,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: build/${{ matrix.archive }}
+          path: artifacts/package/${{ matrix.archive }}
           if-no-files-found: error
 
   release:

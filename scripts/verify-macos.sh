@@ -4,8 +4,8 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-EXECUTABLE="$PROJECT_ROOT/dist/ClickGit.app/Contents/MacOS/ClickGit"
-REPORT="$PROJECT_ROOT/build/macos-package-smoke.json"
+EXECUTABLE="$PROJECT_ROOT/artifacts/publish/macos/ClickGit.app/Contents/MacOS/ClickGit"
+REPORT="$PROJECT_ROOT/artifacts/build/macos/macos-package-smoke.json"
 
 if [[ ! -x "$EXECUTABLE" ]]; then
     echo "Packaged macOS executable was not found: $EXECUTABLE" >&2

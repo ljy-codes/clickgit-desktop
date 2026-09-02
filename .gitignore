@@ -2,8 +2,7 @@
 __pycache__/
 *.py[cod]
 
-build/
-dist/
+artifacts/
 runtime/git/
 downloads/
 

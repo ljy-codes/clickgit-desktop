@@ -14,7 +14,9 @@ unset QT_QPA_PLATFORM
 "$PYTHON_BIN" -m PyInstaller \
     --noconfirm \
     --clean \
-    packaging/clickgit-macos.spec
+    --workpath artifacts/build/macos \
+    --distpath artifacts/publish/macos \
+    installer/clickgit-macos.spec
 
 PYTHON_BIN="$PYTHON_BIN" scripts/verify-macos.sh
 
@@ -31,11 +33,10 @@ case "$(uname -m)" in
         ;;
 esac
 
-mkdir -p build
-rm -f "build/$ARCHIVE_NAME"
+mkdir -p artifacts/package
+rm -f "artifacts/package/$ARCHIVE_NAME"
 ditto -c -k --sequesterRsrc --keepParent \
-    "dist/ClickGit.app" \
-    "build/$ARCHIVE_NAME"
+    "artifacts/publish/macos/ClickGit.app" \
+    "artifacts/package/$ARCHIVE_NAME"
 
-echo "macOS package ready: $PROJECT_ROOT/build/$ARCHIVE_NAME"
-
+echo "macOS package ready: $PROJECT_ROOT/artifacts/package/$ARCHIVE_NAME"

@@ -104,7 +104,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 最终便携版位于：
 
 ```text
-dist\ClickGit\ClickGit.exe
+artifacts\publish\windows-x64\ClickGit\ClickGit.exe
 ```
 
 ## macOS 构建
@@ -119,9 +119,27 @@ scripts/build-macos.sh
 输出文件根据当前 Mac 架构生成：
 
 ```text
-build/ClickGit-macOS-arm64.zip
-build/ClickGit-macOS-x64.zip
+artifacts/package/ClickGit-macOS-arm64.zip
+artifacts/package/ClickGit-macOS-x64.zip
 ```
+
+## 开发目录
+
+```text
+git工具/
+  artifacts/
+    build/       构建过程文件和冒烟测试报告
+    publish/     Windows 和 macOS 可运行程序
+    package/     用于发布的 ZIP 压缩包
+  docs/          设计和实施文档
+  installer/     PyInstaller 构建配置
+  runtime/       Windows 便携版 Git 运行时
+  scripts/       构建、验证和运行时准备脚本
+  src/           ClickGit 源码
+  tests/         自动化测试
+```
+
+`artifacts/` 为本地和 CI 生成目录，不提交到 Git 仓库。
 
 ## 自动发布
 

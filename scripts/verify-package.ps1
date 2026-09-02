@@ -1,10 +1,10 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$PackageRoot = Join-Path $ProjectRoot "dist\ClickGit"
+$PackageRoot = Join-Path $ProjectRoot "artifacts\publish\windows-x64\ClickGit"
 $Executable = Join-Path $PackageRoot "ClickGit.exe"
 $BundledGit = Join-Path $PackageRoot "runtime\git\cmd\git.exe"
-$Report = Join-Path $ProjectRoot "build\package-smoke.json"
+$Report = Join-Path $ProjectRoot "artifacts\build\windows\package-smoke.json"
 
 if (-not (Test-Path -LiteralPath $Executable)) {
     throw "ClickGit.exe was not found. Run scripts\build.ps1 first."

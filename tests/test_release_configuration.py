@@ -8,9 +8,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseConfigurationTests(unittest.TestCase):
+    def test_pyinstaller_specs_live_under_installer(self) -> None:
+        self.assertTrue(
+            (PROJECT_ROOT / "installer" / "clickgit.spec").is_file()
+        )
+        self.assertTrue(
+            (
+                PROJECT_ROOT
+                / "installer"
+                / "clickgit-macos.spec"
+            ).is_file()
+        )
+        self.assertFalse((PROJECT_ROOT / "packaging").exists())
+
     def test_macos_spec_builds_app_without_windows_git_runtime(self) -> None:
         spec = (
-            PROJECT_ROOT / "packaging" / "clickgit-macos.spec"
+            PROJECT_ROOT / "installer" / "clickgit-macos.spec"
         ).read_text(encoding="utf-8")
 
         self.assertIn("BUNDLE(", spec)
@@ -26,11 +39,45 @@ class ReleaseConfigurationTests(unittest.TestCase):
             PROJECT_ROOT / "scripts" / "build-macos.sh"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("packaging/clickgit-macos.spec", script)
+        self.assertIn("installer/clickgit-macos.spec", script)
+        self.assertIn("--workpath artifacts/build/macos", script)
+        self.assertIn("--distpath artifacts/publish/macos", script)
         self.assertIn("scripts/verify-macos.sh", script)
         self.assertIn("ditto -c -k --sequesterRsrc --keepParent", script)
+        self.assertIn("artifacts/publish/macos/ClickGit.app", script)
+        self.assertIn("artifacts/package/$ARCHIVE_NAME", script)
         self.assertIn("ClickGit-macOS-arm64.zip", script)
         self.assertIn("ClickGit-macOS-x64.zip", script)
+
+    def test_windows_build_and_verification_use_artifacts(self) -> None:
+        build_script = (
+            PROJECT_ROOT / "scripts" / "build.ps1"
+        ).read_text(encoding="utf-8")
+        verify_script = (
+            PROJECT_ROOT / "scripts" / "verify-package.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("installer\\clickgit.spec", build_script)
+        self.assertIn("--workpath artifacts\\build\\windows", build_script)
+        self.assertIn(
+            "--distpath artifacts\\publish\\windows-x64",
+            build_script,
+        )
+        self.assertIn(
+            "artifacts\\publish\\windows-x64\\ClickGit\\ClickGit.exe",
+            build_script,
+        )
+        self.assertIn(
+            "artifacts\\publish\\windows-x64\\ClickGit",
+            verify_script,
+        )
+        self.assertIn(
+            "artifacts\\build\\windows\\package-smoke.json",
+            verify_script,
+        )
+        self.assertIn("$OriginalPath = $env:PATH", build_script)
+        self.assertIn("codex-runtimes", build_script)
+        self.assertIn("$env:PATH = $OriginalPath", build_script)
 
     def test_macos_verification_uses_packaged_smoke_mode(self) -> None:
         script = (
@@ -43,6 +90,14 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("Contents/MacOS/ClickGit", script)
         self.assertIn("--smoke-test", script)
         self.assertIn("verify_macos_report.py", script)
+        self.assertIn(
+            "artifacts/publish/macos/ClickGit.app",
+            script,
+        )
+        self.assertIn(
+            "artifacts/build/macos/macos-package-smoke.json",
+            script,
+        )
         self.assertIn("gui_started", verifier)
         self.assertIn("git_returncode", verifier)
 
@@ -62,6 +117,18 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("ClickGit-Windows-x64.zip", workflow)
         self.assertIn("ClickGit-macOS-arm64.zip", workflow)
         self.assertIn("ClickGit-macOS-x64.zip", workflow)
+        self.assertIn(
+            "artifacts/package/ClickGit-Windows-x64.zip",
+            workflow,
+        )
+        self.assertIn(
+            "artifacts/package/${{ matrix.archive }}",
+            workflow,
+        )
+        self.assertIn(
+            "artifacts/publish/windows-x64/ClickGit",
+            workflow.replace("\\", "/"),
+        )
 
     def test_release_workflow_creates_windows_and_mac_releases(self) -> None:
         workflow = (
