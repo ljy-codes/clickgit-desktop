@@ -17,7 +17,23 @@ $NoticesSource = Join-Path $ProjectRoot "THIRD-PARTY-NOTICES.txt"
 $PackageRuntime = Join-Path $PackageRoot "runtime\git"
 $PackageLicense = Join-Path $PackageRoot "LICENSE"
 $PackageNotices = Join-Path $PackageRoot "THIRD-PARTY-NOTICES.txt"
+$OriginalPathExists = Test-Path -LiteralPath Env:PATH
+$OriginalPythonPathExists = Test-Path -LiteralPath Env:PYTHONPATH
+$OriginalQtPlatformExists = Test-Path -LiteralPath Env:QT_QPA_PLATFORM
 $OriginalPath = $env:PATH
+$OriginalPythonPath = if ($OriginalPythonPathExists) {
+    $env:PYTHONPATH
+}
+else {
+    $null
+}
+$OriginalQtPlatform = if ($OriginalQtPlatformExists) {
+    $env:QT_QPA_PLATFORM
+}
+else {
+    $null
+}
+$LocationPushed = $false
 
 function Assert-ChildPath {
     param(
@@ -31,7 +47,10 @@ function Assert-ChildPath {
         [IO.Path]::DirectorySeparatorChar,
         [IO.Path]::AltDirectorySeparatorChar
     )
-    $NormalizedChild = [IO.Path]::GetFullPath($ChildPath)
+    $NormalizedChild = [IO.Path]::GetFullPath($ChildPath).TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+    )
     $RequiredPrefix = $NormalizedParent + [IO.Path]::DirectorySeparatorChar
     if (-not $NormalizedChild.StartsWith(
         $RequiredPrefix,
@@ -39,24 +58,39 @@ function Assert-ChildPath {
     )) {
         throw "Unsafe artifact path outside artifacts: $NormalizedChild"
     }
+    return $NormalizedChild
 }
 
-Assert-ChildPath -ParentPath $ArtifactsRoot -ChildPath $BuildRoot
-Assert-ChildPath -ParentPath $ArtifactsRoot -ChildPath $PublishRoot
-Assert-ChildPath -ParentPath $ArtifactsRoot -ChildPath $PackageRoot
-Assert-ChildPath -ParentPath $ArtifactsRoot -ChildPath $PackageRuntime
-Assert-ChildPath -ParentPath $ArtifactsRoot -ChildPath $PackageLicense
-Assert-ChildPath -ParentPath $ArtifactsRoot -ChildPath $PackageNotices
-
-if (-not (Test-Path -LiteralPath $VenvPython)) {
-    & (Join-Path $PSScriptRoot "bootstrap.ps1")
-}
-if (-not (Test-Path -LiteralPath $GitExecutable)) {
-    & (Join-Path $PSScriptRoot "download-portable-git.ps1")
-}
-
-Push-Location $ProjectRoot
 try {
+    $ValidatedBuildRoot = Assert-ChildPath `
+        -ParentPath $ArtifactsRoot `
+        -ChildPath $BuildRoot
+    $ValidatedPublishRoot = Assert-ChildPath `
+        -ParentPath $ArtifactsRoot `
+        -ChildPath $PublishRoot
+    $ValidatedPackageRoot = Assert-ChildPath `
+        -ParentPath $ArtifactsRoot `
+        -ChildPath $PackageRoot
+    Assert-ChildPath `
+        -ParentPath $ArtifactsRoot `
+        -ChildPath $PackageRuntime | Out-Null
+    Assert-ChildPath `
+        -ParentPath $ArtifactsRoot `
+        -ChildPath $PackageLicense | Out-Null
+    Assert-ChildPath `
+        -ParentPath $ArtifactsRoot `
+        -ChildPath $PackageNotices | Out-Null
+
+    if (-not (Test-Path -LiteralPath $VenvPython)) {
+        & (Join-Path $PSScriptRoot "bootstrap.ps1")
+    }
+    if (-not (Test-Path -LiteralPath $GitExecutable)) {
+        & (Join-Path $PSScriptRoot "download-portable-git.ps1")
+    }
+
+    Push-Location $ProjectRoot
+    $LocationPushed = $true
+
     if (-not $SkipTests) {
         $env:PYTHONPATH = "src"
         $env:QT_QPA_PLATFORM = "offscreen"
@@ -73,6 +107,16 @@ try {
                 $_ -notmatch "[\\/]\.cache[\\/]codex-runtimes[\\/]"
             }
     ) -join [IO.Path]::PathSeparator
+
+    foreach ($CleanTarget in @(
+        $ValidatedBuildRoot,
+        $ValidatedPackageRoot
+    )) {
+        if (Test-Path -LiteralPath $CleanTarget) {
+            Remove-Item -LiteralPath $CleanTarget -Recurse -Force
+        }
+    }
+
     & $VenvPython -m PyInstaller `
         --noconfirm `
         --clean `
@@ -111,8 +155,29 @@ try {
         -Force
 }
 finally {
-    $env:PATH = $OriginalPath
-    Pop-Location
+    if ($OriginalPathExists) {
+        $env:PATH = $OriginalPath
+    }
+    else {
+        Remove-Item -LiteralPath Env:PATH -ErrorAction SilentlyContinue
+    }
+    if ($OriginalPythonPathExists) {
+        $env:PYTHONPATH = $OriginalPythonPath
+    }
+    else {
+        Remove-Item -LiteralPath Env:PYTHONPATH -ErrorAction SilentlyContinue
+    }
+    if ($OriginalQtPlatformExists) {
+        $env:QT_QPA_PLATFORM = $OriginalQtPlatform
+    }
+    else {
+        Remove-Item `
+            -LiteralPath Env:QT_QPA_PLATFORM `
+            -ErrorAction SilentlyContinue
+    }
+    if ($LocationPushed) {
+        Pop-Location
+    }
 }
 
 Write-Host "Build completed: $(Join-Path $ProjectRoot 'artifacts\publish\windows-x64\ClickGit\ClickGit.exe')"
