@@ -33,7 +33,7 @@
 - Modify: `tests/test_release_configuration.py`
 - Modify: `tests/test_project_metadata.py`
 
-- [ ] **Step 1: Add failing Windows layout assertions**
+- [x] **Step 1: Add failing Windows layout assertions**
 
 Add assertions that require:
 
@@ -54,7 +54,7 @@ self.assertIn('"LICENSE"', build_script)
 self.assertIn('"THIRD-PARTY-NOTICES.txt"', build_script)
 ```
 
-- [ ] **Step 2: Add failing installer and publishing assertions**
+- [x] **Step 2: Add failing installer and publishing assertions**
 
 Read `installer/ClickGit.iss`, `scripts/package.ps1`, and
 `scripts/publish.ps1`, then assert these exact contracts:
@@ -70,7 +70,7 @@ self.assertIn("ClickGit-安装包.exe", publish_script)
 self.assertIn("Assert-ChildPath", publish_script)
 ```
 
-- [ ] **Step 3: Add failing user-document assertions**
+- [x] **Step 3: Add failing user-document assertions**
 
 Require both HTML files and verify their user-facing sections:
 
@@ -90,7 +90,7 @@ self.assertIn("<title>ClickGit 产品介绍</title>", product_intro)
 self.assertIn("完全点击操作", product_intro)
 ```
 
-- [ ] **Step 4: Run focused tests and verify failure**
+- [x] **Step 4: Run focused tests and verify failure**
 
 Run:
 
@@ -104,7 +104,7 @@ $env:PYTHONPATH = "src"
 Expected: failure because the installer, packaging scripts, user documents,
 and `_internal` contract do not exist yet.
 
-- [ ] **Step 5: Commit the failing tests**
+- [x] **Step 5: Commit the failing tests**
 
 ```powershell
 git add tests/test_release_configuration.py tests/test_project_metadata.py
