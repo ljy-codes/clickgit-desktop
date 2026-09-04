@@ -129,6 +129,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self,
     ) -> None:
         installer_path = PROJECT_ROOT / "installer" / "ClickGit.iss"
+        package_script_path = PROJECT_ROOT / "scripts" / "package.ps1"
         installer_language_path = (
             PROJECT_ROOT
             / "installer"
@@ -140,10 +141,12 @@ class ReleaseConfigurationTests(unittest.TestCase):
         )
 
         self.assertTrue(installer_path.is_file())
+        self.assertTrue(package_script_path.is_file())
         self.assertTrue(installer_language_path.is_file())
         self.assertTrue(installer_language_license_path.is_file())
 
         installer = installer_path.read_text(encoding="utf-8")
+        package_script = package_script_path.read_text(encoding="utf-8")
         installer_language = installer_language_path.read_text(
             encoding="utf-8"
         )
@@ -155,6 +158,16 @@ class ReleaseConfigurationTests(unittest.TestCase):
             'MessagesFile: "Languages\\ChineseSimplified.isl"',
             installer,
         )
+        self.assertIn(
+            'Source: "{#SourceRoot}\\installer\\Languages\\LICENSE"',
+            installer,
+        )
+        self.assertIn(
+            'DestName: "Inno-Setup-Chinese-Translation-LICENSE.txt"',
+            installer,
+        )
+        self.assertIn('DestDir: "{app}\\licenses"', installer)
+        self.assertIn('"/DSourceRoot=$ProjectRoot"', package_script)
         self.assertNotIn("[Messages]", installer)
         self.assertIn("LanguageName=简体中文", installer_language)
         self.assertIn("LanguageID=$0804", installer_language)
@@ -410,6 +423,22 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            stale_installer = (
+                project_root
+                / "artifacts"
+                / "installer"
+                / "ClickGit-Windows-x64-Setup.exe"
+            )
+            stale_portable = (
+                project_root
+                / "artifacts"
+                / "package"
+                / "ClickGit-Windows-x64-Portable.zip"
+            )
+            stale_installer.parent.mkdir(parents=True)
+            stale_portable.parent.mkdir(parents=True)
+            stale_installer.write_bytes(b"stale-installer")
+            stale_portable.write_bytes(b"stale-portable")
 
             result = self._run_package_script(
                 powershell,
@@ -423,22 +452,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertTrue(marker.is_file())
             self.assertFalse(iscc_marker.exists())
-            self.assertFalse(
-                (
-                    project_root
-                    / "artifacts"
-                    / "installer"
-                    / "ClickGit-Windows-x64-Setup.exe"
-                ).exists()
-            )
-            self.assertFalse(
-                (
-                    project_root
-                    / "artifacts"
-                    / "package"
-                    / "ClickGit-Windows-x64-Portable.zip"
-                ).exists()
-            )
+            self.assertFalse(stale_installer.exists())
+            self.assertFalse(stale_portable.exists())
 
     def _create_package_fixture(
         self,

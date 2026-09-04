@@ -57,6 +57,35 @@ function Find-IsccPath {
     throw "Inno Setup 6 ISCC.exe was not found."
 }
 
+function Remove-FinalPackageOutputs {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ArtifactsRoot,
+        [Parameter(Mandatory)]
+        [string[]]$OutputPaths
+    )
+
+    $CleanupErrors = @()
+    foreach ($OutputPath in $OutputPaths) {
+        try {
+            $ValidatedOutput = Assert-ChildPath `
+                -ParentPath $ArtifactsRoot `
+                -ChildPath $OutputPath
+            if (Test-Path -LiteralPath $ValidatedOutput) {
+                Remove-Item -LiteralPath $ValidatedOutput -Force
+            }
+        }
+        catch {
+            $CleanupErrors += $_
+        }
+    }
+    if ($CleanupErrors.Count -gt 0) {
+        $Messages = $CleanupErrors |
+            ForEach-Object { $_.Exception.Message }
+        throw "Failed to clear final package outputs: $($Messages -join '; ')"
+    }
+}
+
 $ProjectRoot = Get-NormalizedPath $ProjectRoot
 $ArtifactsRoot = Get-NormalizedPath (
     Join-Path $ProjectRoot "artifacts"
@@ -94,8 +123,13 @@ $PortableOutput = Assert-ChildPath `
 $InstallerOutput = Assert-ChildPath `
     -ParentPath $ArtifactsRoot `
     -ChildPath (Join-Path $InstallerOutputRoot $InstallerName)
+$FinalOutputs = @($PortableOutput, $InstallerOutput)
 
 try {
+    Remove-FinalPackageOutputs `
+        -ArtifactsRoot $ArtifactsRoot `
+        -OutputPaths $FinalOutputs
+
     foreach ($RequiredScript in @($VerifyScript, $InstallerScript)) {
         if (-not (Test-Path -LiteralPath $RequiredScript -PathType Leaf)) {
             throw "Required packaging file was not found: $RequiredScript"
@@ -154,14 +188,17 @@ try {
 
     & $IsccPath `
         "/DAppVersion=$Version" `
+        "/DSourceRoot=$ProjectRoot" `
         "/DSourceDir=$ApplicationRoot" `
         "/DOutputDir=$StagingRoot" `
         $InstallerScript
     if ($LASTEXITCODE -ne 0) {
         throw "Inno Setup failed with exit code $LASTEXITCODE."
     }
-    if (-not (Test-Path -LiteralPath $StagedInstaller -PathType Leaf)) {
-        throw "Inno Setup did not create the expected installer."
+    foreach ($StagedProduct in @($StagedPortable, $StagedInstaller)) {
+        if (-not (Test-Path -LiteralPath $StagedProduct -PathType Leaf)) {
+            throw "Packaging did not create the expected product: $StagedProduct"
+        }
     }
 
     New-Item -ItemType Directory -Force -Path @(
@@ -174,6 +211,22 @@ try {
     Copy-Item -LiteralPath $StagedInstaller `
         -Destination $InstallerOutput `
         -Force
+}
+catch {
+    $PackagingError = $_
+    try {
+        Remove-FinalPackageOutputs `
+            -ArtifactsRoot $ArtifactsRoot `
+            -OutputPaths $FinalOutputs
+    }
+    catch {
+        throw (
+            "Packaging failed: {0} Final output cleanup also failed: {1}" -f
+            $PackagingError.Exception.Message,
+            $_.Exception.Message
+        )
+    }
+    throw $PackagingError
 }
 finally {
     if (Test-Path -LiteralPath $StagingRoot) {
