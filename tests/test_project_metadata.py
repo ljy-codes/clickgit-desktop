@@ -149,11 +149,45 @@ class ProjectMetadataTests(unittest.TestCase):
             "macOS",
             "首次使用",
             "卸载与数据",
+            "常见问题",
         ):
             with self.subTest(document="安装说明", section=section):
                 self.assertIn(section, install_guide.visible_headings)
+        for required_text in (
+            "SmartScreen",
+            "未知发布者",
+            "完整解压",
+            "Gatekeeper",
+            "Git LFS",
+            "额外安装",
+        ):
+            with self.subTest(
+                document="安装说明",
+                required_text=required_text,
+            ):
+                self.assertIn(required_text, install_guide.visible_text)
         self.assertIn("ClickGit", product_intro.visible_headings)
+        self.assertIn("界面预览", product_intro.visible_headings)
         self.assertIn("完全点击操作", product_intro.visible_text)
+        for required_text in (
+            "仓库 / 分支侧栏",
+            "文件变更列表",
+            "提交与同步操作区",
+        ):
+            with self.subTest(
+                document="产品介绍",
+                required_text=required_text,
+            ):
+                self.assertIn(required_text, product_intro.visible_text)
+        for forbidden_text in ("占位图", "待补充"):
+            with self.subTest(
+                document="产品介绍",
+                forbidden_text=forbidden_text,
+            ):
+                self.assertNotIn(
+                    forbidden_text,
+                    product_intro.visible_text,
+                )
 
     def test_project_uses_mit_license_and_repository_urls(self) -> None:
         with (PROJECT_ROOT / "pyproject.toml").open("rb") as pyproject_file:

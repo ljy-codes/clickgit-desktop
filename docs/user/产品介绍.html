@@ -140,6 +140,222 @@
       border-right: 0;
     }
 
+    .preview-shell {
+      overflow: hidden;
+      border: 1px solid #bdc5cd;
+      border-radius: 6px;
+      background: var(--surface);
+      box-shadow: 0 12px 28px rgb(28 39 49 / 10%);
+    }
+
+    .preview-toolbar {
+      display: flex;
+      min-height: 52px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: #eef1f3;
+    }
+
+    .preview-repository {
+      min-width: 0;
+    }
+
+    .preview-repository strong,
+    .preview-repository span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .preview-repository span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .preview-toolbar button,
+    .action-pane button {
+      min-height: 34px;
+      padding: 7px 12px;
+      border: 1px solid #aeb8c2;
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+    }
+
+    .preview-toolbar button {
+      flex: 0 0 auto;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: minmax(170px, 0.8fr) minmax(280px, 1.5fr) minmax(210px, 1fr);
+      min-height: 390px;
+    }
+
+    .workbench > * {
+      min-width: 0;
+      padding: 16px;
+      border-right: 1px solid var(--border);
+    }
+
+    .workbench > *:last-child {
+      border-right: 0;
+    }
+
+    .pane-label {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .repository-list,
+    .branch-list,
+    .change-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .repository-list li,
+    .branch-list li {
+      padding: 7px 8px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .repository-list .selected,
+    .branch-list .selected {
+      background: var(--accent-soft);
+      color: #0f5877;
+      font-weight: 600;
+    }
+
+    .branch-heading {
+      margin: 20px 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .changes-pane header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 0 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .changes-pane header strong {
+      font-size: 14px;
+    }
+
+    .change-count {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .change-list li {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 46px;
+      border-bottom: 1px solid #e7eaed;
+      font-size: 13px;
+    }
+
+    .change-list code {
+      overflow: hidden;
+      color: var(--text);
+      font-family: Consolas, monospace;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .change-status {
+      display: inline-grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+
+    .modified {
+      background: #fff2c6;
+      color: #765600;
+    }
+
+    .added {
+      background: #e4f4ea;
+      color: #26734d;
+    }
+
+    .deleted {
+      background: #fae7e7;
+      color: #9a3838;
+    }
+
+    .staged-state {
+      color: var(--success);
+      font-size: 12px;
+    }
+
+    .action-pane {
+      background: #fafbfc;
+    }
+
+    .action-pane label {
+      display: block;
+      margin: 18px 0 7px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .action-pane textarea {
+      width: 100%;
+      min-height: 92px;
+      resize: none;
+      padding: 9px;
+      border: 1px solid #b8c1ca;
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+    }
+
+    .primary-action {
+      width: 100%;
+      margin-top: 10px;
+      border-color: var(--accent) !important;
+      background: var(--accent) !important;
+      color: #ffffff !important;
+    }
+
+    .sync-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+
+    .sync-status {
+      grid-column: 1 / -1;
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
     @media (max-width: 720px) {
       main {
         padding-top: 28px;
@@ -158,6 +374,19 @@
       .detail,
       .principles {
         grid-template-columns: 1fr;
+      }
+
+      .workbench {
+        grid-template-columns: 1fr;
+      }
+
+      .workbench > * {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .workbench > *:last-child {
+        border-bottom: 0;
       }
 
       .principles div {
@@ -242,6 +471,80 @@
         <div>
           <h3>风险提示</h3>
           <p>对覆盖、删除和恢复等操作提供确认信息，保留可判断的操作结果。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>界面预览</h2>
+      <p>
+        ClickGit 工作台把仓库上下文、文件变化和提交同步操作并排呈现，
+        操作时不需要在多个窗口之间切换。
+      </p>
+
+      <div class="preview-shell">
+        <header class="preview-toolbar">
+          <div class="preview-repository">
+            <strong>clickgit-desktop</strong>
+            <span>D:\projects\clickgit-desktop</span>
+          </div>
+          <button type="button">刷新状态</button>
+        </header>
+
+        <div class="workbench">
+          <aside class="repository-pane" aria-label="仓库和分支">
+            <p class="pane-label">仓库 / 分支侧栏</p>
+            <ul class="repository-list">
+              <li class="selected">clickgit-desktop</li>
+              <li>website-tools</li>
+            </ul>
+
+            <p class="branch-heading">本地分支</p>
+            <nav aria-label="分支列表">
+              <ul class="branch-list">
+                <li class="selected">main</li>
+                <li>feature/release-docs</li>
+                <li>fix/windows-package</li>
+              </ul>
+            </nav>
+          </aside>
+
+          <section class="changes-pane" aria-label="文件变更">
+            <header>
+              <strong>文件变更列表</strong>
+              <span class="change-count">3 个文件</span>
+            </header>
+            <ul class="change-list">
+              <li>
+                <span class="change-status modified">M</span>
+                <code>docs/user/安装说明.html</code>
+                <span>未暂存</span>
+              </li>
+              <li>
+                <span class="change-status added">A</span>
+                <code>docs/user/产品介绍.html</code>
+                <span class="staged-state">已暂存</span>
+              </li>
+              <li>
+                <span class="change-status deleted">D</span>
+                <code>交付产品/ClickGit.zip</code>
+                <span class="staged-state">已暂存</span>
+              </li>
+            </ul>
+          </section>
+
+          <aside class="action-pane" aria-label="提交和同步">
+            <p class="pane-label">提交与同步操作区</p>
+            <label for="preview-message">提交说明</label>
+            <textarea id="preview-message" readonly>docs: 完善用户交付说明</textarea>
+            <button class="primary-action" type="button">提交 2 个文件</button>
+
+            <div class="sync-actions">
+              <button type="button">拉取</button>
+              <button type="button">推送</button>
+              <p class="sync-status">main 与 origin/main 保持同步</p>
+            </div>
+          </aside>
         </div>
       </div>
     </section>
