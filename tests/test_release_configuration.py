@@ -8,6 +8,61 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseConfigurationTests(unittest.TestCase):
+    def test_windows_packaging_contract(self) -> None:
+        windows_spec = (
+            PROJECT_ROOT / "installer" / "clickgit.spec"
+        ).read_text(encoding="utf-8")
+        build_script = (
+            PROJECT_ROOT / "scripts" / "build.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('contents_directory="_internal"', windows_spec)
+        self.assertNotIn(
+            '(str(runtime_git), "runtime/git")',
+            windows_spec,
+        )
+        self.assertTrue(
+            (PROJECT_ROOT / "installer" / "ClickGit.iss").is_file()
+        )
+        self.assertTrue(
+            (PROJECT_ROOT / "scripts" / "package.ps1").is_file()
+        )
+        self.assertTrue(
+            (PROJECT_ROOT / "scripts" / "publish.ps1").is_file()
+        )
+        self.assertIn(
+            "Copy-Item -LiteralPath $GitRuntime",
+            build_script,
+        )
+        self.assertIn('"runtime\\git"', build_script)
+        self.assertIn('"LICENSE"', build_script)
+        self.assertIn('"THIRD-PARTY-NOTICES.txt"', build_script)
+
+    def test_installer_and_publishing_contract(self) -> None:
+        installer_path = PROJECT_ROOT / "installer" / "ClickGit.iss"
+        package_script_path = PROJECT_ROOT / "scripts" / "package.ps1"
+        publish_script_path = PROJECT_ROOT / "scripts" / "publish.ps1"
+
+        self.assertTrue(installer_path.is_file())
+        self.assertTrue(package_script_path.is_file())
+        self.assertTrue(publish_script_path.is_file())
+
+        installer = installer_path.read_text(encoding="utf-8")
+        package_script = package_script_path.read_text(encoding="utf-8")
+        publish_script = publish_script_path.read_text(encoding="utf-8")
+
+        self.assertIn("PrivilegesRequired=lowest", installer)
+        self.assertIn("ClickGit-Windows-x64-Setup", installer)
+        self.assertIn("recursesubdirs createallsubdirs", installer)
+        self.assertIn(
+            "ClickGit-Windows-x64-Portable.zip",
+            package_script,
+        )
+        self.assertIn("scripts\\verify-package.ps1", package_script)
+        self.assertIn("SHA256SUMS.txt", publish_script)
+        self.assertIn("ClickGit-安装包.exe", publish_script)
+        self.assertIn("Assert-ChildPath", publish_script)
+
     def test_pyinstaller_specs_live_under_installer(self) -> None:
         self.assertTrue(
             (PROJECT_ROOT / "installer" / "clickgit.spec").is_file()

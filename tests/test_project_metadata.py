@@ -9,6 +9,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProjectMetadataTests(unittest.TestCase):
+    def test_user_delivery_documents_contract(self) -> None:
+        install_guide_path = (
+            PROJECT_ROOT / "docs" / "user" / "安装说明.html"
+        )
+        product_intro_path = (
+            PROJECT_ROOT / "docs" / "user" / "产品介绍.html"
+        )
+
+        self.assertTrue(install_guide_path.is_file())
+        self.assertTrue(product_intro_path.is_file())
+
+        install_guide = install_guide_path.read_text(encoding="utf-8")
+        product_intro = product_intro_path.read_text(encoding="utf-8")
+
+        self.assertIn("<title>ClickGit 安装说明</title>", install_guide)
+        self.assertIn("Windows 安装版", install_guide)
+        self.assertIn("Windows 便携版", install_guide)
+        self.assertIn("macOS", install_guide)
+        self.assertIn("<title>ClickGit 产品介绍</title>", product_intro)
+        self.assertIn("完全点击操作", product_intro)
+
     def test_project_uses_mit_license_and_repository_urls(self) -> None:
         with (PROJECT_ROOT / "pyproject.toml").open("rb") as pyproject_file:
             pyproject = tomllib.load(pyproject_file)
