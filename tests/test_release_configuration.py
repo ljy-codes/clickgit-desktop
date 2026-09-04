@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import ast
+import hashlib
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -7,20 +13,65 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _find_single_call(tree: ast.AST, function_name: str) -> ast.Call:
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == function_name
+    ]
+    if len(calls) != 1:
+        raise AssertionError(
+            f"Expected one {function_name} call, found {len(calls)}."
+        )
+    return calls[0]
+
+
+def _required_keyword(call: ast.Call, keyword_name: str) -> ast.AST:
+    for keyword in call.keywords:
+        if keyword.arg == keyword_name:
+            return keyword.value
+    raise AssertionError(f"Missing keyword argument: {keyword_name}")
+
+
+def _contains_runtime_git(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and child.id.casefold() == "runtime_git":
+            return True
+        if isinstance(child, ast.Constant) and isinstance(child.value, str):
+            normalized = child.value.replace("\\", "/").casefold()
+            if "runtime/git" in normalized:
+                return True
+    return False
+
+
 class ReleaseConfigurationTests(unittest.TestCase):
     def test_windows_packaging_contract(self) -> None:
-        windows_spec = (
+        windows_spec_path = (
             PROJECT_ROOT / "installer" / "clickgit.spec"
-        ).read_text(encoding="utf-8")
+        )
+        windows_spec = windows_spec_path.read_text(encoding="utf-8")
+        spec_tree = ast.parse(windows_spec, filename=str(windows_spec_path))
         build_script = (
             PROJECT_ROOT / "scripts" / "build.ps1"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('contents_directory="_internal"', windows_spec)
-        self.assertNotIn(
-            '(str(runtime_git), "runtime/git")',
-            windows_spec,
+        analysis_call = _find_single_call(spec_tree, "Analysis")
+        analysis_datas = _required_keyword(analysis_call, "datas")
+        with self.subTest(contract="Analysis.datas excludes runtime/git"):
+            self.assertIsInstance(analysis_datas, (ast.List, ast.Tuple))
+            self.assertFalse(_contains_runtime_git(analysis_datas))
+
+        exe_call = _find_single_call(spec_tree, "EXE")
+        contents_directory = _required_keyword(
+            exe_call,
+            "contents_directory",
         )
+        with self.subTest(contract="EXE contents directory"):
+            self.assertIsInstance(contents_directory, ast.Constant)
+            self.assertEqual(contents_directory.value, "_internal")
+
         self.assertTrue(
             (PROJECT_ROOT / "installer" / "ClickGit.iss").is_file()
         )
@@ -62,6 +113,181 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("SHA256SUMS.txt", publish_script)
         self.assertIn("ClickGit-安装包.exe", publish_script)
         self.assertIn("Assert-ChildPath", publish_script)
+
+    @unittest.skipUnless(os.name == "nt", "Windows publishing only")
+    def test_windows_publish_script_integrates_safe_outer_layout(self) -> None:
+        publish_script = PROJECT_ROOT / "scripts" / "publish.ps1"
+        self.assertTrue(publish_script.is_file())
+        powershell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+        self.assertIsNotNone(powershell)
+
+        with tempfile.TemporaryDirectory(
+            prefix="clickgit-publish-contract-"
+        ) as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            outer_root = temporary_root / "git工具"
+            project_root = outer_root / "开发空间"
+            installer_root = project_root / "artifacts" / "installer"
+            package_root = project_root / "artifacts" / "package"
+            docs_root = project_root / "docs" / "user"
+            delivery_root = outer_root / "交付产品"
+            installer_root.mkdir(parents=True)
+            package_root.mkdir(parents=True)
+            docs_root.mkdir(parents=True)
+            delivery_root.mkdir(parents=True)
+
+            installer_name = "ClickGit-Windows-x64-Setup.exe"
+            installer_content = b"fake-installer"
+            (installer_root / installer_name).write_bytes(installer_content)
+            existing_macos_name = "ClickGit-macOS-x64.zip"
+            existing_macos_content = b"existing-macos-x64"
+            (delivery_root / existing_macos_name).write_bytes(
+                existing_macos_content
+            )
+            package_files = {
+                "ClickGit-Windows-x64-Portable.zip": b"fake-portable",
+                "ClickGit-macOS-arm64.zip": b"fake-macos-arm64",
+            }
+            for file_name, content in package_files.items():
+                (package_root / file_name).write_bytes(content)
+            fixture_files = {
+                installer_name: installer_content,
+                **package_files,
+                existing_macos_name: existing_macos_content,
+            }
+
+            install_guide = "<html><body>安装说明</body></html>"
+            product_intro = "<html><body>产品介绍</body></html>"
+            (docs_root / "安装说明.html").write_text(
+                install_guide,
+                encoding="utf-8",
+            )
+            (docs_root / "产品介绍.html").write_text(
+                product_intro,
+                encoding="utf-8",
+            )
+
+            obsolete_directory = delivery_root / "ClickGit"
+            obsolete_directory.mkdir()
+            (obsolete_directory / "stale.dll").write_bytes(b"obsolete")
+            (delivery_root / "ClickGit.zip").write_bytes(b"obsolete")
+
+            result = self._run_publish_script(
+                powershell,
+                publish_script,
+                project_root,
+                outer_root,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+            )
+
+            self.assertFalse(obsolete_directory.exists())
+            self.assertFalse((delivery_root / "ClickGit.zip").exists())
+            for file_name, content in fixture_files.items():
+                with self.subTest(delivery_file=file_name):
+                    self.assertEqual(
+                        (delivery_root / file_name).read_bytes(),
+                        content,
+                    )
+            self.assertEqual(
+                (outer_root / "ClickGit-安装包.exe").read_bytes(),
+                fixture_files["ClickGit-Windows-x64-Setup.exe"],
+            )
+            self.assertEqual(
+                (outer_root / "安装说明.html").read_text(encoding="utf-8"),
+                install_guide,
+            )
+            self.assertEqual(
+                (outer_root / "产品介绍.html").read_text(encoding="utf-8"),
+                product_intro,
+            )
+            self._assert_sha256_manifest_matches(delivery_root)
+
+            mismatched_outer = temporary_root / "不匹配外层"
+            mismatched_outer.mkdir()
+            mismatched_result = self._run_publish_script(
+                powershell,
+                publish_script,
+                project_root,
+                mismatched_outer,
+            )
+            self.assertNotEqual(mismatched_result.returncode, 0)
+            self.assertFalse(
+                (mismatched_outer / "ClickGit-安装包.exe").exists()
+            )
+
+            child_outer = project_root / "artifacts"
+            boundary_result = self._run_publish_script(
+                powershell,
+                publish_script,
+                project_root,
+                child_outer,
+            )
+            self.assertNotEqual(boundary_result.returncode, 0)
+            self.assertFalse(
+                (child_outer / "ClickGit-安装包.exe").exists()
+            )
+
+    def _run_publish_script(
+        self,
+        powershell: str,
+        publish_script: Path,
+        project_root: Path,
+        outer_root: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(publish_script),
+                "-Version",
+                "0.1.0",
+                "-ProjectRoot",
+                str(project_root),
+                "-OuterRoot",
+                str(outer_root),
+                "-SkipPackage",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            check=False,
+        )
+
+    def _assert_sha256_manifest_matches(self, delivery_root: Path) -> None:
+        manifest_path = delivery_root / "SHA256SUMS.txt"
+        self.assertTrue(manifest_path.is_file())
+        manifest_entries: dict[str, str] = {}
+        for line in manifest_path.read_text(encoding="utf-8-sig").splitlines():
+            if not line.strip():
+                continue
+            digest, file_name = line.split(maxsplit=1)
+            manifest_entries[file_name.lstrip("*")] = digest.casefold()
+
+        delivery_files = {
+            path.name: path
+            for path in delivery_root.iterdir()
+            if path.is_file() and path.name != manifest_path.name
+        }
+        self.assertEqual(set(manifest_entries), set(delivery_files))
+        for file_name, file_path in delivery_files.items():
+            with self.subTest(sha256=file_name):
+                actual_digest = hashlib.sha256(
+                    file_path.read_bytes()
+                ).hexdigest()
+                self.assertEqual(
+                    manifest_entries[file_name],
+                    actual_digest,
+                )
 
     def test_pyinstaller_specs_live_under_installer(self) -> None:
         self.assertTrue(

@@ -2,13 +2,133 @@ from __future__ import annotations
 
 import tomllib
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+class VisibleHTMLParser(HTMLParser):
+    _HIDDEN_TAGS = {"head", "script", "style", "template", "noscript"}
+    _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+    _VOID_TAGS = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._frames: list[tuple[str, bool, int | None]] = []
+        self._text_parts: list[str] = []
+        self._heading_parts: list[list[str]] = []
+
+    @property
+    def visible_text(self) -> str:
+        return " ".join("".join(self._text_parts).split())
+
+    @property
+    def visible_headings(self) -> list[str]:
+        return [
+            " ".join("".join(parts).split())
+            for parts in self._heading_parts
+        ]
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        normalized_tag = tag.casefold()
+        attributes = {
+            name.casefold(): value
+            for name, value in attrs
+        }
+        parent_hidden = bool(self._frames and self._frames[-1][1])
+        style = (attributes.get("style") or "").replace(" ", "").casefold()
+        hidden = (
+            parent_hidden
+            or normalized_tag in self._HIDDEN_TAGS
+            or "hidden" in attributes
+            or (attributes.get("aria-hidden") or "").casefold() == "true"
+            or "display:none" in style
+            or "visibility:hidden" in style
+        )
+        parent_heading = self._frames[-1][2] if self._frames else None
+        heading_index = parent_heading
+        if normalized_tag in self._HEADING_TAGS and not hidden:
+            self._heading_parts.append([])
+            heading_index = len(self._heading_parts) - 1
+        if normalized_tag not in self._VOID_TAGS:
+            self._frames.append((normalized_tag, hidden, heading_index))
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.casefold()
+        for index in range(len(self._frames) - 1, -1, -1):
+            if self._frames[index][0] == normalized_tag:
+                del self._frames[index:]
+                break
+
+    def handle_data(self, data: str) -> None:
+        if self._frames and self._frames[-1][1]:
+            return
+        if not data.strip():
+            return
+        self._text_parts.append(data)
+        if self._frames and self._frames[-1][2] is not None:
+            heading_index = self._frames[-1][2]
+            self._heading_parts[heading_index].append(data)
+
+
+def _parse_visible_html(path: Path) -> VisibleHTMLParser:
+    parser = VisibleHTMLParser()
+    parser.feed(path.read_text(encoding="utf-8"))
+    parser.close()
+    return parser
+
+
 class ProjectMetadataTests(unittest.TestCase):
+    def test_visible_html_parser_ignores_non_visible_content(self) -> None:
+        parser = VisibleHTMLParser()
+        parser.feed(
+            """
+            <html>
+              <head><title>隐藏标题</title></head>
+              <body>
+                <!-- 完全点击操作 -->
+                <script>Windows 安装版</script>
+                <style>.hidden { display: none; }</style>
+                <h2 hidden>Windows 便携版</h2>
+                <h2 aria-hidden="true">macOS</h2>
+                <h2 style="display: none">首次使用</h2>
+                <h2>卸载与<span>数据</span></h2>
+                <p>ClickGit <strong>完全点击操作</strong></p>
+              </body>
+            </html>
+            """
+        )
+        parser.close()
+
+        self.assertEqual(parser.visible_headings, ["卸载与数据"])
+        self.assertNotIn("Windows 安装版", parser.visible_text)
+        self.assertNotIn("Windows 便携版", parser.visible_text)
+        self.assertNotIn("macOS", parser.visible_text)
+        self.assertNotIn("首次使用", parser.visible_text)
+        self.assertIn("ClickGit", parser.visible_text)
+        self.assertIn("完全点击操作", parser.visible_text)
+
     def test_user_delivery_documents_contract(self) -> None:
         install_guide_path = (
             PROJECT_ROOT / "docs" / "user" / "安装说明.html"
@@ -20,15 +140,20 @@ class ProjectMetadataTests(unittest.TestCase):
         self.assertTrue(install_guide_path.is_file())
         self.assertTrue(product_intro_path.is_file())
 
-        install_guide = install_guide_path.read_text(encoding="utf-8")
-        product_intro = product_intro_path.read_text(encoding="utf-8")
+        install_guide = _parse_visible_html(install_guide_path)
+        product_intro = _parse_visible_html(product_intro_path)
 
-        self.assertIn("<title>ClickGit 安装说明</title>", install_guide)
-        self.assertIn("Windows 安装版", install_guide)
-        self.assertIn("Windows 便携版", install_guide)
-        self.assertIn("macOS", install_guide)
-        self.assertIn("<title>ClickGit 产品介绍</title>", product_intro)
-        self.assertIn("完全点击操作", product_intro)
+        for section in (
+            "Windows 安装版",
+            "Windows 便携版",
+            "macOS",
+            "首次使用",
+            "卸载与数据",
+        ):
+            with self.subTest(document="安装说明", section=section):
+                self.assertIn(section, install_guide.visible_headings)
+        self.assertIn("ClickGit", product_intro.visible_headings)
+        self.assertIn("完全点击操作", product_intro.visible_text)
 
     def test_project_uses_mit_license_and_repository_urls(self) -> None:
         with (PROJECT_ROOT / "pyproject.toml").open("rb") as pyproject_file:
