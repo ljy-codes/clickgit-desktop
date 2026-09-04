@@ -1,0 +1,108 @@
+ClickGit Third-Party Notices
+============================
+
+ClickGit project source code is licensed under the MIT License. That license
+does not replace, override, or extend to the third-party components listed
+below. Each component remains governed by its own license terms.
+
+1. Python 3.13
+   Copyright (c) Python Software Foundation and contributors.
+   License: Python Software Foundation License Version 2.
+   Python and its standard library may include additional notices for
+   incorporated software.
+
+2. PySide6 6.10.3
+   License: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only.
+   PySide6 is the Qt for Python meta wheel used by ClickGit. It declares and
+   installs the Shiboken6, PySide6_Essentials, and PySide6_Addons wheels; the
+   meta wheel itself is not the complete set of Qt runtime libraries.
+   Installed wheel metadata and commercial-license reference:
+   - site-packages/pyside6-6.10.3.dist-info/METADATA
+   - site-packages/pyside6-6.10.3.dist-info/licenses/
+     LicenseRef-Qt-Commercial.txt
+   That commercial-license reference is not an open-source license text.
+
+3. PySide6_Essentials 6.10.3
+   License: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only.
+   This wheel supplies the essential PySide6 binding modules and Qt 6.10.3
+   runtime libraries, including the Qt Core, GUI, and Widgets libraries,
+   under the PySide6 package directory. Its RECORD file is the authoritative
+   inventory of files installed from this wheel.
+   Installed wheel metadata and commercial-license reference:
+   - site-packages/pyside6_essentials-6.10.3.dist-info/METADATA
+   - site-packages/pyside6_essentials-6.10.3.dist-info/RECORD
+   - site-packages/pyside6_essentials-6.10.3.dist-info/licenses/
+     LicenseRef-Qt-Commercial.txt
+   That commercial-license reference is not an open-source license text.
+
+4. PySide6_Addons 6.10.3
+   License: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only.
+   This wheel supplies additional PySide6 binding modules and corresponding
+   Qt 6.10.3 runtime libraries under the PySide6 package directory. Its
+   RECORD file is the authoritative inventory of files installed from this
+   wheel.
+   Installed wheel metadata and commercial-license reference:
+   - site-packages/pyside6_addons-6.10.3.dist-info/METADATA
+   - site-packages/pyside6_addons-6.10.3.dist-info/RECORD
+   - site-packages/pyside6_addons-6.10.3.dist-info/licenses/
+     LicenseRef-Qt-Commercial.txt
+   That commercial-license reference is not an open-source license text.
+
+5. Qt 6.10.3
+   The Qt runtime libraries distributed by ClickGit come from the
+   PySide6_Essentials and PySide6_Addons wheels and are copied into the
+   application bundle by PyInstaller. Qt licensing is module-specific and
+   may use applicable open-source terms or commercial terms.
+   ClickGit does not declare that it holds a commercial Qt license.
+   Open-source distribution must retain the applicable LGPL or GPL license texts
+   for the actual Qt modules, along with required Qt notices, source-offer
+   information, and other materials required by those license terms. The
+   LicenseRef-Qt-Commercial.txt files listed above apply only when the
+   distributor holds an applicable commercial Qt license; they are not
+   substitutes for LGPL or GPL texts.
+
+6. Shiboken6 6.10.3
+   License: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only.
+   Shiboken6 provides the binding support used by PySide6.
+   Installed wheel metadata and commercial-license reference:
+   - site-packages/shiboken6-6.10.3.dist-info/METADATA
+   - site-packages/shiboken6-6.10.3.dist-info/licenses/
+     LicenseRef-Qt-Commercial.txt
+   That commercial-license reference is not an open-source license text.
+
+7. PyInstaller 6.21.0
+   Copyright (c) PyInstaller Development Team and contributors.
+   License: GPL-2.0-or-later with the PyInstaller exception that permits
+   building and distributing programs under other licenses.
+
+8. Git for Windows
+   Windows releases bundle Git for Windows 2.55.0.3.
+   License: Git itself is distributed under GPL-2.0-only. The Git for Windows
+   distribution also contains supporting components governed by their own
+   license terms and notices.
+
+9. Git Credential Manager
+   Windows releases bundle the Git Credential Manager version supplied with
+   Git for Windows.
+   License: MIT License.
+   The bundled component's authoritative attribution, license text, and
+   incorporated-project notices are retained at:
+   - runtime/git/mingw64/doc/git-credential-manager/LICENSE
+   - runtime/git/mingw64/doc/git-credential-manager/NOTICE
+
+Distribution requirement
+------------------------
+
+Every final ClickGit release must retain and distribute the complete license
+files, copyright notices, exceptions, and third-party notices supplied with
+these components. This baseline does not prove that the required Qt and PySide6 license materials
+are present in the application bundles or release archives. Before the next
+release, the actual packaged modules and archives must be inspected, the
+required materials must be collected, and their inclusion must be verified.
+If that verification is incomplete, the release must be blocked.
+
+docs/licenses must be created and maintained before the next release as the
+project's license inventory location. The directory will be established by
+the subsequent documentation-structure task; this notice does not claim that
+it already exists. This summary is not a substitute for the complete license
+materials and does not grant additional rights.
