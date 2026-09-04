@@ -125,6 +125,41 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("ClickGit-安装包.exe", publish_script)
         self.assertIn("Assert-ChildPath", publish_script)
 
+    def test_installer_uses_complete_simplified_chinese_translation(
+        self,
+    ) -> None:
+        installer_path = PROJECT_ROOT / "installer" / "ClickGit.iss"
+        installer_language_path = (
+            PROJECT_ROOT
+            / "installer"
+            / "Languages"
+            / "ChineseSimplified.isl"
+        )
+        installer_language_license_path = (
+            PROJECT_ROOT / "installer" / "Languages" / "LICENSE"
+        )
+
+        self.assertTrue(installer_path.is_file())
+        self.assertTrue(installer_language_path.is_file())
+        self.assertTrue(installer_language_license_path.is_file())
+
+        installer = installer_path.read_text(encoding="utf-8")
+        installer_language = installer_language_path.read_text(
+            encoding="utf-8"
+        )
+        installer_language_license = (
+            installer_language_license_path.read_text(encoding="utf-8")
+        )
+
+        self.assertIn(
+            'MessagesFile: "Languages\\ChineseSimplified.isl"',
+            installer,
+        )
+        self.assertNotIn("[Messages]", installer)
+        self.assertIn("LanguageName=简体中文", installer_language)
+        self.assertIn("LanguageID=$0804", installer_language)
+        self.assertTrue(installer_language_license.startswith("MIT License"))
+
     @unittest.skipUnless(os.name == "nt", "Windows publishing only")
     def test_windows_publish_script_integrates_safe_outer_layout(self) -> None:
         source_publish_script = PROJECT_ROOT / "scripts" / "publish.ps1"
@@ -430,6 +465,10 @@ class ReleaseConfigurationTests(unittest.TestCase):
         package_script = scripts_root / "package.ps1"
         shutil.copy2(source_package_script, package_script)
         shutil.copy2(source_installer, installer_root / "ClickGit.iss")
+        shutil.copytree(
+            source_installer.parent / "Languages",
+            installer_root / "Languages",
+        )
 
         (application_root / "ClickGit.exe").write_bytes(b"fake-clickgit")
         (git_root / "git.exe").write_bytes(b"fake-git")
