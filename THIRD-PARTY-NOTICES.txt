@@ -101,8 +101,9 @@ release, the actual packaged modules and archives must be inspected, the
 required materials must be collected, and their inclusion must be verified.
 If that verification is incomplete, the release must be blocked.
 
-docs/licenses must be created and maintained before the next release as the
-project's license inventory location. The directory will be established by
-the subsequent documentation-structure task; this notice does not claim that
-it already exists. This summary is not a substitute for the complete license
-materials and does not grant additional rights.
+docs/licenses is established as the project's license-governance entry point.
+The actual inventory and complete license materials must be populated and
+maintained there before the next release. The directory's presence does not
+prove that the current release archives contain all required materials. This
+summary is not a substitute for the complete license materials and does not
+grant additional rights.

@@ -354,8 +354,8 @@ Create `docs/releases/2026-07-28-v0.1.0.md`:
 ```markdown
 # ClickGit v0.1.0 发布记录
 
-**发布日期：** 2026-07-28  
-**Windows Release：** `windows-v0.1.0`  
+**发布日期：** 2026-07-28
+**Windows Release：** `windows-v0.1.0`
 **macOS Release：** `mac-v0.1.0`
 
 ## 交付文件
@@ -891,10 +891,10 @@ Create `docs/development/2026-09-04-product-baseline.md`:
 ```markdown
 # ClickGit 产品化改造基线
 
-**日期：** 2026-09-04  
-**平台：** Windows  
-**Python：** 3.14.2  
-**Git：** 2.54.0.windows.1  
+**日期：** 2026-09-04
+**平台：** Windows
+**Python：** 3.14.2
+**Git：** 2.54.0.windows.1
 **目标分支：** `main`
 
 ## 改造前状态
@@ -963,8 +963,8 @@ repository commit.
 ```markdown
 # ClickGit 改造进度
 
-**更新日期：** 2026-09-04  
-**当前阶段：** 第一阶段 - 产品基线  
+**更新日期：** 2026-09-04
+**当前阶段：** 第一阶段 - 产品基线
 **分支：** `main`
 
 ## 已确认事实
@@ -1180,4 +1180,3 @@ execution request explicitly includes synchronization.
   are added; a different count requires investigation.
 - Direct work on `main` is controlled through small commits and a full test gate,
   but it still has a larger blast radius than an isolated worktree.
-

@@ -88,6 +88,29 @@ class ProjectMetadataTests(unittest.TestCase):
             "大型仓库的历史记录默认最多加载 200 条",
             release,
         )
+        for release_section in (
+            "## SHA-256",
+            "## 测试结果",
+            "## 签名状态",
+            "## 已知问题",
+            "## 回滚方式",
+        ):
+            with self.subTest(release_section=release_section):
+                self.assertIn(release_section, release)
+        self.assertIn(
+            "v0.1.0 发布时的三个 GitHub Release 附件 SHA-256 未保存在",
+            release,
+        )
+        self.assertIn(
+            "v0.1.0 发布时的完整测试命令、数量和日志未保存在",
+            release,
+        )
+        self.assertIn("Windows：未代码签名", release)
+        self.assertIn("macOS：未签名、未公证", release)
+        self.assertIn(
+            "仅在重新核验附件存在、架构和 SHA-256 后",
+            release,
+        )
 
     def test_third_party_notice_lists_distributed_components(self) -> None:
         notice = (PROJECT_ROOT / "THIRD-PARTY-NOTICES.txt").read_text(
@@ -113,6 +136,7 @@ class ProjectMetadataTests(unittest.TestCase):
             "Copyright (c) Microsoft Corporation and contributors.",
             notice,
         )
+        normalized_notice = " ".join(notice.split())
         for requirement in (
             "ClickGit does not declare that it holds a commercial Qt license.",
             (
@@ -125,15 +149,20 @@ class ProjectMetadataTests(unittest.TestCase):
             ),
             "the release must be blocked",
             (
-                "docs/licenses must be created and maintained before the "
-                "next release"
+                "docs/licenses is established as the project's "
+                "license-governance entry point"
+            ),
+            "must be populated and maintained there before the next release",
+            (
+                "The directory's presence does not prove that the current "
+                "release archives contain all required materials"
             ),
         ):
             with self.subTest(requirement=requirement):
-                self.assertIn(requirement, notice)
+                self.assertIn(requirement, normalized_notice)
         self.assertNotIn(
-            "The maintained license inventory is stored under docs/licenses",
-            notice,
+            "docs/licenses must be created",
+            normalized_notice,
         )
 
     def test_documentation_directories_are_tracked(self) -> None:
