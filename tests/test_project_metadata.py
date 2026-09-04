@@ -150,6 +150,70 @@ class ProjectMetadataTests(unittest.TestCase):
                 self.assertTrue(path.is_file())
                 self.assertGreater(len(path.read_text(encoding="utf-8")), 80)
 
+    def test_readme_contains_product_sections(self) -> None:
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        required_sections = (
+            "## 下载",
+            "## 快速开始",
+            "## 功能矩阵",
+            "## 安全与恢复",
+            "## 数据与隐私",
+            "## 开发与测试",
+            "## 项目结构",
+            "## 发布",
+            "## 许可证",
+        )
+
+        for section in required_sections:
+            with self.subTest(section=section):
+                self.assertIn(section, readme)
+
+        self.assertIn("windows-v0.1.0", readme)
+        self.assertIn("mac-v0.1.0", readme)
+        self.assertIn("MIT", readme)
+        for download_url in (
+            (
+                "https://github.com/ljy-codes/clickgit-desktop/releases/"
+                "tag/windows-v0.1.0"
+            ),
+            (
+                "https://github.com/ljy-codes/clickgit-desktop/releases/"
+                "download/windows-v0.1.0/ClickGit-Windows-x64.zip"
+            ),
+            (
+                "https://github.com/ljy-codes/clickgit-desktop/releases/"
+                "tag/mac-v0.1.0"
+            ),
+            (
+                "https://github.com/ljy-codes/clickgit-desktop/releases/"
+                "download/mac-v0.1.0/ClickGit-macOS-arm64.zip"
+            ),
+            (
+                "https://github.com/ljy-codes/clickgit-desktop/releases/"
+                "download/mac-v0.1.0/ClickGit-macOS-x64.zip"
+            ),
+        ):
+            with self.subTest(download_url=download_url):
+                self.assertIn(download_url, readme)
+
+        self.assertIn(
+            "使用 Git LFS 功能时还需安装 Git LFS",
+            readme,
+        )
+        self.assertIn(
+            "当前发布工作流尚未自动检查第三方许可证材料",
+            readme,
+        )
+        self.assertIn("检查未完成不得发布", readme)
+        self.assertIn(
+            "目前是待完善的许可证治理入口",
+            readme,
+        )
+        self.assertIn(
+            "不代表现有发布包的许可证材料已经齐全",
+            readme,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
