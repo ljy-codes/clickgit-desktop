@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -35,15 +36,28 @@ def _required_keyword(call: ast.Call, keyword_name: str) -> ast.AST:
     raise AssertionError(f"Missing keyword argument: {keyword_name}")
 
 
-def _contains_runtime_git(node: ast.AST) -> bool:
-    for child in ast.walk(node):
-        if isinstance(child, ast.Name) and child.id.casefold() == "runtime_git":
-            return True
-        if isinstance(child, ast.Constant) and isinstance(child.value, str):
-            normalized = child.value.replace("\\", "/").casefold()
-            if "runtime/git" in normalized:
-                return True
-    return False
+def _find_iscc() -> str | None:
+    candidates = [
+        shutil.which("ISCC.exe"),
+        (
+            Path(os.environ["ProgramFiles(x86)"])
+            / "Inno Setup 6"
+            / "ISCC.exe"
+            if os.environ.get("ProgramFiles(x86)")
+            else None
+        ),
+        (
+            Path(os.environ["ProgramFiles"])
+            / "Inno Setup 6"
+            / "ISCC.exe"
+            if os.environ.get("ProgramFiles")
+            else None
+        ),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+    return None
 
 
 class ReleaseConfigurationTests(unittest.TestCase):
@@ -53,15 +67,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
         )
         windows_spec = windows_spec_path.read_text(encoding="utf-8")
         spec_tree = ast.parse(windows_spec, filename=str(windows_spec_path))
-        build_script = (
-            PROJECT_ROOT / "scripts" / "build.ps1"
-        ).read_text(encoding="utf-8")
-
         analysis_call = _find_single_call(spec_tree, "Analysis")
         analysis_datas = _required_keyword(analysis_call, "datas")
-        with self.subTest(contract="Analysis.datas excludes runtime/git"):
-            self.assertIsInstance(analysis_datas, (ast.List, ast.Tuple))
-            self.assertFalse(_contains_runtime_git(analysis_datas))
+        with self.subTest(contract="Analysis.datas is empty"):
+            self.assertIsInstance(analysis_datas, ast.List)
+            self.assertEqual(analysis_datas.elts, [])
 
         exe_call = _find_single_call(spec_tree, "EXE")
         contents_directory = _required_keyword(
@@ -81,13 +91,6 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertTrue(
             (PROJECT_ROOT / "scripts" / "publish.ps1").is_file()
         )
-        self.assertIn(
-            "Copy-Item -LiteralPath $GitRuntime",
-            build_script,
-        )
-        self.assertIn('"runtime\\git"', build_script)
-        self.assertIn('"LICENSE"', build_script)
-        self.assertIn('"THIRD-PARTY-NOTICES.txt"', build_script)
 
     def test_installer_and_publishing_contract(self) -> None:
         installer_path = PROJECT_ROOT / "installer" / "ClickGit.iss"
@@ -116,8 +119,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Windows publishing only")
     def test_windows_publish_script_integrates_safe_outer_layout(self) -> None:
-        publish_script = PROJECT_ROOT / "scripts" / "publish.ps1"
-        self.assertTrue(publish_script.is_file())
+        source_publish_script = PROJECT_ROOT / "scripts" / "publish.ps1"
+        self.assertTrue(source_publish_script.is_file())
         powershell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
         self.assertIsNotNone(powershell)
 
@@ -127,14 +130,18 @@ class ReleaseConfigurationTests(unittest.TestCase):
             temporary_root = Path(temporary_directory)
             outer_root = temporary_root / "git工具"
             project_root = outer_root / "开发空间"
+            scripts_root = project_root / "scripts"
             installer_root = project_root / "artifacts" / "installer"
             package_root = project_root / "artifacts" / "package"
             docs_root = project_root / "docs" / "user"
             delivery_root = outer_root / "交付产品"
+            scripts_root.mkdir(parents=True)
             installer_root.mkdir(parents=True)
             package_root.mkdir(parents=True)
             docs_root.mkdir(parents=True)
             delivery_root.mkdir(parents=True)
+            publish_script = scripts_root / "publish.ps1"
+            shutil.copy2(source_publish_script, publish_script)
 
             installer_name = "ClickGit-Windows-x64-Setup.exe"
             installer_content = b"fake-installer"
@@ -186,6 +193,30 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
             self.assertFalse(obsolete_directory.exists())
             self.assertFalse((delivery_root / "ClickGit.zip").exists())
+            allowed_delivery_files = {
+                "ClickGit-Windows-x64-Setup.exe",
+                "ClickGit-Windows-x64-Portable.zip",
+                "ClickGit-macOS-arm64.zip",
+                "ClickGit-macOS-x64.zip",
+                "SHA256SUMS.txt",
+            }
+            delivery_entries = list(delivery_root.iterdir())
+            self.assertTrue(
+                all(path.is_file() for path in delivery_entries),
+                msg="Delivery directory must not contain subdirectories.",
+            )
+            self.assertEqual(
+                {path.name for path in delivery_entries},
+                allowed_delivery_files,
+            )
+            for path in delivery_entries:
+                with self.subTest(clean_delivery_entry=path.name):
+                    self.assertNotIn(
+                        path.suffix.casefold(),
+                        {".dll", ".pyd"},
+                    )
+                    self.assertNotEqual(path.name.casefold(), "pyside6")
+                    self.assertNotEqual(path.name.casefold(), "clickgit")
             for file_name, content in fixture_files.items():
                 with self.subTest(delivery_file=file_name):
                     self.assertEqual(
@@ -231,6 +262,228 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 (child_outer / "ClickGit-安装包.exe").exists()
             )
 
+    @unittest.skipUnless(os.name == "nt", "Windows packaging only")
+    def test_windows_package_script_builds_verified_products(self) -> None:
+        source_package_script = PROJECT_ROOT / "scripts" / "package.ps1"
+        source_installer = PROJECT_ROOT / "installer" / "ClickGit.iss"
+        self.assertTrue(source_package_script.is_file())
+        self.assertTrue(source_installer.is_file())
+        powershell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+        self.assertIsNotNone(powershell)
+        iscc_path = _find_iscc()
+        if iscc_path is None:
+            self.skipTest("Inno Setup ISCC.exe is not installed.")
+
+        with tempfile.TemporaryDirectory(
+            prefix="clickgit-package-contract-"
+        ) as temporary_directory:
+            project_root = Path(temporary_directory) / "开发空间"
+            package_script, verify_script, marker = (
+                self._create_package_fixture(
+                    project_root,
+                    source_package_script,
+                    source_installer,
+                    verify_exit_code=0,
+                )
+            )
+
+            result = self._run_package_script(
+                powershell,
+                package_script,
+                project_root,
+                verify_script,
+                iscc_path,
+                marker,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+            )
+            self.assertTrue(marker.is_file())
+
+            installer = (
+                project_root
+                / "artifacts"
+                / "installer"
+                / "ClickGit-Windows-x64-Setup.exe"
+            )
+            portable = (
+                project_root
+                / "artifacts"
+                / "package"
+                / "ClickGit-Windows-x64-Portable.zip"
+            )
+            self.assertTrue(installer.is_file())
+            self.assertGreater(installer.stat().st_size, 0)
+            self.assertTrue(portable.is_file())
+
+            with zipfile.ZipFile(portable) as archive:
+                archive_files = {
+                    name.replace("\\", "/").rstrip("/")
+                    for name in archive.namelist()
+                    if not name.endswith(("/", "\\"))
+                }
+            expected_archive_files = {
+                "ClickGit/ClickGit.exe",
+                "ClickGit/runtime/git/cmd/git.exe",
+                "ClickGit/LICENSE",
+                "ClickGit/THIRD-PARTY-NOTICES.txt",
+            }
+            self.assertTrue(
+                expected_archive_files.issubset(archive_files),
+                msg=f"ZIP entries: {sorted(archive_files)}",
+            )
+
+    @unittest.skipUnless(os.name == "nt", "Windows packaging only")
+    def test_windows_package_script_stops_when_verification_fails(
+        self,
+    ) -> None:
+        source_package_script = PROJECT_ROOT / "scripts" / "package.ps1"
+        source_installer = PROJECT_ROOT / "installer" / "ClickGit.iss"
+        self.assertTrue(source_package_script.is_file())
+        self.assertTrue(source_installer.is_file())
+        powershell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+        self.assertIsNotNone(powershell)
+
+        with tempfile.TemporaryDirectory(
+            prefix="clickgit-package-failure-"
+        ) as temporary_directory:
+            project_root = Path(temporary_directory) / "开发空间"
+            package_script, verify_script, marker = (
+                self._create_package_fixture(
+                    project_root,
+                    source_package_script,
+                    source_installer,
+                    verify_exit_code=19,
+                )
+            )
+
+            result = self._run_package_script(
+                powershell,
+                package_script,
+                project_root,
+                verify_script,
+                powershell,
+                marker,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(marker.is_file())
+            self.assertFalse(
+                (
+                    project_root
+                    / "artifacts"
+                    / "installer"
+                    / "ClickGit-Windows-x64-Setup.exe"
+                ).exists()
+            )
+            self.assertFalse(
+                (
+                    project_root
+                    / "artifacts"
+                    / "package"
+                    / "ClickGit-Windows-x64-Portable.zip"
+                ).exists()
+            )
+
+    def _create_package_fixture(
+        self,
+        project_root: Path,
+        source_package_script: Path,
+        source_installer: Path,
+        *,
+        verify_exit_code: int,
+    ) -> tuple[Path, Path, Path]:
+        scripts_root = project_root / "scripts"
+        installer_root = project_root / "installer"
+        application_root = (
+            project_root
+            / "artifacts"
+            / "publish"
+            / "windows-x64"
+            / "ClickGit"
+        )
+        git_root = application_root / "runtime" / "git" / "cmd"
+        scripts_root.mkdir(parents=True)
+        installer_root.mkdir(parents=True)
+        git_root.mkdir(parents=True)
+
+        package_script = scripts_root / "package.ps1"
+        shutil.copy2(source_package_script, package_script)
+        shutil.copy2(source_installer, installer_root / "ClickGit.iss")
+
+        (application_root / "ClickGit.exe").write_bytes(b"fake-clickgit")
+        (git_root / "git.exe").write_bytes(b"fake-git")
+        (application_root / "LICENSE").write_text(
+            "MIT License",
+            encoding="utf-8",
+        )
+        (application_root / "THIRD-PARTY-NOTICES.txt").write_text(
+            "Third-party notices",
+            encoding="utf-8",
+        )
+
+        marker = project_root / "verify.marker"
+        verify_script = scripts_root / "fake-verify.ps1"
+        verify_script.write_text(
+            "\n".join(
+                (
+                    "param(",
+                    "    [string]$ProjectRoot,",
+                    "    [string]$PackageRoot",
+                    ")",
+                    '$ErrorActionPreference = "Stop"',
+                    (
+                        "Set-Content -LiteralPath "
+                        "$env:CLICKGIT_VERIFY_MARKER "
+                        '-Value "verified" -Encoding UTF8'
+                    ),
+                    f"exit {verify_exit_code}",
+                )
+            ),
+            encoding="utf-8",
+        )
+        return package_script, verify_script, marker
+
+    def _run_package_script(
+        self,
+        powershell: str,
+        package_script: Path,
+        project_root: Path,
+        verify_script: Path,
+        iscc_path: str,
+        marker: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment["CLICKGIT_VERIFY_MARKER"] = str(marker)
+        return subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(package_script),
+                "-Version",
+                "0.1.0",
+                "-ProjectRoot",
+                str(project_root),
+                "-SkipBuild",
+                "-VerifyScript",
+                str(verify_script),
+                "-IsccPath",
+                iscc_path,
+            ],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            check=False,
+            env=environment,
+        )
+
     def _run_publish_script(
         self,
         powershell: str,
@@ -254,7 +507,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 str(outer_root),
                 "-SkipPackage",
             ],
-            cwd=PROJECT_ROOT,
+            cwd=project_root,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -271,7 +524,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
             if not line.strip():
                 continue
             digest, file_name = line.split(maxsplit=1)
-            manifest_entries[file_name.lstrip("*")] = digest.casefold()
+            normalized_name = file_name.lstrip("*")
+            self.assertNotIn(
+                normalized_name,
+                manifest_entries,
+                msg=f"Duplicate SHA-256 entry: {normalized_name}",
+            )
+            manifest_entries[normalized_name] = digest.casefold()
 
         delivery_files = {
             path.name: path
@@ -288,6 +547,28 @@ class ReleaseConfigurationTests(unittest.TestCase):
                     manifest_entries[file_name],
                     actual_digest,
                 )
+
+    def test_sha256_manifest_rejects_duplicate_names(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="clickgit-sha-contract-"
+        ) as temporary_directory:
+            delivery_root = Path(temporary_directory)
+            artifact = delivery_root / "ClickGit-Windows-x64-Setup.exe"
+            artifact.write_bytes(b"installer")
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            (delivery_root / "SHA256SUMS.txt").write_text(
+                (
+                    f"{digest}  {artifact.name}\n"
+                    f"{digest} *{artifact.name}\n"
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                AssertionError,
+                "Duplicate SHA-256 entry",
+            ):
+                self._assert_sha256_manifest_matches(delivery_root)
 
     def test_pyinstaller_specs_live_under_installer(self) -> None:
         self.assertTrue(
