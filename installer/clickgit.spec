@@ -5,15 +5,12 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
 project_root = Path(SPECPATH).parent
-runtime_git = project_root / "runtime" / "git"
 
 analysis = Analysis(
     [str(project_root / "src" / "clickgit" / "__main__.py")],
     pathex=[str(project_root / "src")],
     binaries=[],
-    datas=[
-        (str(runtime_git), "runtime/git"),
-    ],
+    datas=[],
     hiddenimports=collect_submodules("clickgit"),
     hookspath=[],
     hooksconfig={},
@@ -57,7 +54,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    contents_directory=".",
+    contents_directory="_internal",
 )
 
 collection = COLLECT(
