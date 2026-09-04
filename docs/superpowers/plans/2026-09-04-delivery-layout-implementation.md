@@ -117,7 +117,7 @@ git commit -m "test: define packaged delivery contract"
 - Modify: `installer/clickgit.spec`
 - Modify: `scripts/build.ps1`
 
-- [ ] **Step 1: Configure PyInstaller support files**
+- [x] **Step 1: Configure PyInstaller support files**
 
 Remove the PortableGit data entry from the spec and set:
 
@@ -131,7 +131,7 @@ and:
 contents_directory="_internal",
 ```
 
-- [ ] **Step 2: Copy root-level runtime and notices after PyInstaller**
+- [x] **Step 2: Copy root-level runtime and notices after PyInstaller**
 
 After a successful PyInstaller invocation, define the package root and copy
 the required root-level files:
@@ -153,12 +153,12 @@ Copy-Item -LiteralPath (Join-Path $ProjectRoot "THIRD-PARTY-NOTICES.txt") `
 Use a dedicated `$GitRuntime = Join-Path $ProjectRoot "runtime\git"` variable
 so the copy source is explicit and testable.
 
-- [ ] **Step 3: Run focused release tests**
+- [x] **Step 3: Run focused release tests**
 
 Run the release configuration test. Expected: `_internal` and build-copy
 assertions pass; installer and publishing assertions still fail.
 
-- [ ] **Step 4: Build and verify the Windows directory**
+- [x] **Step 4: Build and verify the Windows directory**
 
 Run:
 
@@ -174,7 +174,7 @@ Expected:
 - `runtime\git\cmd\git.exe` exists.
 - package smoke test reports `gui_started=true` and Git exit code `0`.
 
-- [ ] **Step 5: Commit the layout change**
+- [x] **Step 5: Commit the layout change**
 
 ```powershell
 git add installer/clickgit.spec scripts/build.ps1
