@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,9 +8,17 @@ version = "0.1.0"
 description = "A click-only Git desktop client for Windows and macOS"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["git", "desktop", "gui", "pyside6"]
+authors = [{ name = "ljy-codes" }]
 dependencies = [
     "PySide6==6.10.3",
 ]
+
+[project.urls]
+Repository = "https://github.com/ljy-codes/clickgit-desktop"
+Issues = "https://github.com/ljy-codes/clickgit-desktop/issues"
 
 [project.scripts]
 clickgit = "clickgit.__main__:main"
