@@ -187,7 +187,7 @@ git commit -m "build: isolate Windows runtime dependencies"
 - Create: `installer/ClickGit.iss`
 - Create: `scripts/package.ps1`
 
-- [ ] **Step 1: Create the Inno Setup definition**
+- [x] **Step 1: Create the Inno Setup definition**
 
 Define:
 
@@ -217,7 +217,7 @@ Name: "{autodesktop}\ClickGit"; Filename: "{app}\ClickGit.exe"; Tasks: desktopic
 Add Simplified Chinese language, optional desktop shortcut, uninstall entry,
 and post-install launch.
 
-- [ ] **Step 2: Create the Windows packaging script**
+- [x] **Step 2: Create the Windows packaging script**
 
 The script must:
 
@@ -234,12 +234,12 @@ compiles `installer\ClickGit.iss` into a PID-specific staging directory, and
 copies the verified installer to
 `artifacts\installer\ClickGit-Windows-x64-Setup.exe`.
 
-- [ ] **Step 3: Run focused tests**
+- [x] **Step 3: Run focused tests**
 
 Run `tests.test_release_configuration`. Expected: installer and package
 assertions pass; publishing and user-document assertions still fail.
 
-- [ ] **Step 4: Generate both Windows packages**
+- [x] **Step 4: Generate both Windows packages**
 
 Run:
 
@@ -254,7 +254,7 @@ artifacts\package\ClickGit-Windows-x64-Portable.zip
 artifacts\installer\ClickGit-Windows-x64-Setup.exe
 ```
 
-- [ ] **Step 5: Commit the installer**
+- [x] **Step 5: Commit the installer**
 
 ```powershell
 git add installer/ClickGit.iss scripts/package.ps1
