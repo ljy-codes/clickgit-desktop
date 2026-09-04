@@ -136,6 +136,20 @@ class ProjectMetadataTests(unittest.TestCase):
             notice,
         )
 
+    def test_documentation_directories_are_tracked(self) -> None:
+        expected_files = (
+            "docs/images/README.md",
+            "docs/development/README.md",
+            "docs/releases/README.md",
+            "docs/licenses/README.md",
+        )
+
+        for relative_path in expected_files:
+            with self.subTest(path=relative_path):
+                path = PROJECT_ROOT / relative_path
+                self.assertTrue(path.is_file())
+                self.assertGreater(len(path.read_text(encoding="utf-8")), 80)
+
 
 if __name__ == "__main__":
     unittest.main()
