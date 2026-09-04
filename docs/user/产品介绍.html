@@ -176,9 +176,11 @@
       font-size: 12px;
     }
 
-    .preview-toolbar button,
-    .action-pane button {
+    .preview-control,
+    .action-control {
+      display: inline-grid;
       min-height: 34px;
+      place-items: center;
       padding: 7px 12px;
       border: 1px solid #aeb8c2;
       border-radius: 4px;
@@ -187,7 +189,7 @@
       font: inherit;
     }
 
-    .preview-toolbar button {
+    .preview-control {
       flex: 0 0 auto;
     }
 
@@ -313,17 +315,16 @@
       background: #fafbfc;
     }
 
-    .action-pane label {
+    .field-label {
       display: block;
       margin: 18px 0 7px;
       font-size: 13px;
       font-weight: 600;
     }
 
-    .action-pane textarea {
+    .message-preview {
       width: 100%;
       min-height: 92px;
-      resize: none;
       padding: 9px;
       border: 1px solid #b8c1ca;
       border-radius: 4px;
@@ -482,13 +483,17 @@
         操作时不需要在多个窗口之间切换。
       </p>
 
-      <div class="preview-shell">
+      <div
+        class="preview-shell"
+        role="img"
+        aria-label="ClickGit 三栏工作台界面预览"
+      >
         <header class="preview-toolbar">
           <div class="preview-repository">
             <strong>clickgit-desktop</strong>
             <span>D:\projects\clickgit-desktop</span>
           </div>
-          <button type="button">刷新状态</button>
+          <span class="preview-control">刷新状态</span>
         </header>
 
         <div class="workbench">
@@ -535,13 +540,13 @@
 
           <aside class="action-pane" aria-label="提交和同步">
             <p class="pane-label">提交与同步操作区</p>
-            <label for="preview-message">提交说明</label>
-            <textarea id="preview-message" readonly>docs: 完善用户交付说明</textarea>
-            <button class="primary-action" type="button">提交 2 个文件</button>
+            <p class="field-label">提交说明</p>
+            <div class="message-preview">docs: 完善用户交付说明</div>
+            <div class="action-control primary-action">提交 2 个文件</div>
 
             <div class="sync-actions">
-              <button type="button">拉取</button>
-              <button type="button">推送</button>
+              <span class="action-control">拉取</span>
+              <span class="action-control">推送</span>
               <p class="sync-status">main 与 origin/main 保持同步</p>
             </div>
           </aside>

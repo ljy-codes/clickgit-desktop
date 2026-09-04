@@ -92,6 +92,52 @@ class VisibleHTMLParser(HTMLParser):
             self._heading_parts[heading_index].append(data)
 
 
+class PreviewStructureParser(HTMLParser):
+    _INTERACTIVE_TAGS = {
+        "a",
+        "button",
+        "input",
+        "select",
+        "textarea",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._frames: list[tuple[str, bool]] = []
+        self.preview_attributes: list[dict[str, str | None]] = []
+        self.interactive_tags: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        normalized_tag = tag.casefold()
+        attributes = {
+            name.casefold(): value
+            for name, value in attrs
+        }
+        classes = set((attributes.get("class") or "").split())
+        parent_is_preview = bool(
+            self._frames and self._frames[-1][1]
+        )
+        starts_preview = "preview-shell" in classes
+        is_preview = parent_is_preview or starts_preview
+        if starts_preview:
+            self.preview_attributes.append(attributes)
+        if is_preview and normalized_tag in self._INTERACTIVE_TAGS:
+            self.interactive_tags.append(normalized_tag)
+        if normalized_tag not in VisibleHTMLParser._VOID_TAGS:
+            self._frames.append((normalized_tag, is_preview))
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.casefold()
+        for index in range(len(self._frames) - 1, -1, -1):
+            if self._frames[index][0] == normalized_tag:
+                del self._frames[index:]
+                break
+
+
 def _parse_visible_html(path: Path) -> VisibleHTMLParser:
     parser = VisibleHTMLParser()
     parser.feed(path.read_text(encoding="utf-8"))
@@ -142,6 +188,11 @@ class ProjectMetadataTests(unittest.TestCase):
 
         install_guide = _parse_visible_html(install_guide_path)
         product_intro = _parse_visible_html(product_intro_path)
+        preview_structure = PreviewStructureParser()
+        preview_structure.feed(
+            product_intro_path.read_text(encoding="utf-8")
+        )
+        preview_structure.close()
 
         for section in (
             "Windows 安装版",
@@ -188,6 +239,14 @@ class ProjectMetadataTests(unittest.TestCase):
                     forbidden_text,
                     product_intro.visible_text,
                 )
+        self.assertEqual(len(preview_structure.preview_attributes), 1)
+        preview_attributes = preview_structure.preview_attributes[0]
+        self.assertEqual(preview_attributes.get("role"), "img")
+        self.assertEqual(
+            preview_attributes.get("aria-label"),
+            "ClickGit 三栏工作台界面预览",
+        )
+        self.assertEqual(preview_structure.interactive_tags, [])
 
     def test_project_uses_mit_license_and_repository_urls(self) -> None:
         with (PROJECT_ROOT / "pyproject.toml").open("rb") as pyproject_file:

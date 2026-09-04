@@ -17,7 +17,15 @@ function Get-NormalizedPath {
         [string]$Path
     )
 
-    return [IO.Path]::GetFullPath($Path).TrimEnd(
+    $FullPath = [IO.Path]::GetFullPath($Path)
+    $PathRoot = [IO.Path]::GetPathRoot($FullPath)
+    if ($FullPath.Equals(
+        $PathRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        return $PathRoot
+    }
+    return $FullPath.TrimEnd(
         [IO.Path]::DirectorySeparatorChar,
         [IO.Path]::AltDirectorySeparatorChar
     )
@@ -33,7 +41,12 @@ function Assert-ChildPath {
 
     $NormalizedParent = Get-NormalizedPath $ParentPath
     $NormalizedChild = Get-NormalizedPath $ChildPath
-    $RequiredPrefix = $NormalizedParent + [IO.Path]::DirectorySeparatorChar
+    $RequiredPrefix = $NormalizedParent
+    if (-not $RequiredPrefix.EndsWith(
+        [IO.Path]::DirectorySeparatorChar.ToString()
+    )) {
+        $RequiredPrefix += [IO.Path]::DirectorySeparatorChar
+    }
     if (-not $NormalizedChild.StartsWith(
         $RequiredPrefix,
         [StringComparison]::OrdinalIgnoreCase
@@ -41,6 +54,118 @@ function Assert-ChildPath {
         throw "Unsafe path outside '$NormalizedParent': $NormalizedChild"
     }
     return $NormalizedChild
+}
+
+function Assert-NoReparsePoint {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TrustedRoot,
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $NormalizedRoot = Get-NormalizedPath $TrustedRoot
+    $NormalizedPath = Get-NormalizedPath $Path
+    $RequiredPrefix = $NormalizedRoot
+    if (-not $RequiredPrefix.EndsWith(
+        [IO.Path]::DirectorySeparatorChar.ToString()
+    )) {
+        $RequiredPrefix += [IO.Path]::DirectorySeparatorChar
+    }
+    $IsTrustedRoot = $NormalizedPath.Equals(
+        $NormalizedRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )
+    if (
+        -not $IsTrustedRoot -and
+        -not $NormalizedPath.StartsWith(
+            $RequiredPrefix,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    ) {
+        throw (
+            "Unsafe reparse-point check outside trusted root " +
+            "'$NormalizedRoot': $NormalizedPath"
+        )
+    }
+
+    $CurrentPath = $NormalizedRoot
+    $RelativePath = if ($IsTrustedRoot) {
+        ""
+    }
+    else {
+        $NormalizedPath.Substring($NormalizedRoot.Length).TrimStart(
+            [IO.Path]::DirectorySeparatorChar,
+            [IO.Path]::AltDirectorySeparatorChar
+        )
+    }
+    $PathParts = @()
+    if ($RelativePath) {
+        $PathParts = $RelativePath.Split(
+            [char[]]@(
+                [IO.Path]::DirectorySeparatorChar,
+                [IO.Path]::AltDirectorySeparatorChar
+            ),
+            [StringSplitOptions]::RemoveEmptyEntries
+        )
+    }
+
+    foreach ($PathPart in @("") + $PathParts) {
+        if ($PathPart) {
+            $CurrentPath = Join-Path $CurrentPath $PathPart
+        }
+        if (-not (Test-Path -LiteralPath $CurrentPath)) {
+            break
+        }
+        $CurrentItem = Get-Item -LiteralPath $CurrentPath -Force
+        if (
+            ($CurrentItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0
+        ) {
+            throw "Reparse point is not allowed: $CurrentPath"
+        }
+    }
+    return $NormalizedPath
+}
+
+function Assert-NoReparseTree {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TrustedRoot,
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $ValidatedPath = Assert-NoReparsePoint `
+        -TrustedRoot $TrustedRoot `
+        -Path $Path
+    if (-not (Test-Path -LiteralPath $ValidatedPath)) {
+        return $ValidatedPath
+    }
+    $RootItem = Get-Item -LiteralPath $ValidatedPath -Force
+    if (-not $RootItem.PSIsContainer) {
+        return $ValidatedPath
+    }
+
+    $PendingPaths = New-Object "Collections.Generic.Queue[string]"
+    $PendingPaths.Enqueue($ValidatedPath)
+    while ($PendingPaths.Count -gt 0) {
+        $CurrentDirectory = $PendingPaths.Dequeue()
+        foreach ($ChildItem in Get-ChildItem `
+            -LiteralPath $CurrentDirectory `
+            -Force) {
+            if (
+                ($ChildItem.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0
+            ) {
+                throw "Reparse point is not allowed: $($ChildItem.FullName)"
+            }
+            if ($ChildItem.PSIsContainer) {
+                $PendingPaths.Enqueue($ChildItem.FullName)
+            }
+        }
+    }
+    return $ValidatedPath
 }
 
 function Assert-RequiredFile {
@@ -57,6 +182,31 @@ function Assert-RequiredFile {
     }
 }
 
+function Copy-CheckedFile {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceTrustedRoot,
+        [Parameter(Mandatory)]
+        [string]$Source,
+        [Parameter(Mandatory)]
+        [string]$DestinationTrustedRoot,
+        [Parameter(Mandatory)]
+        [string]$Destination
+    )
+
+    $ValidatedSource = Assert-NoReparsePoint `
+        -TrustedRoot $SourceTrustedRoot `
+        -Path $Source
+    $ValidatedDestination = Assert-NoReparsePoint `
+        -TrustedRoot $DestinationTrustedRoot `
+        -Path $Destination
+    Assert-RequiredFile $ValidatedSource
+    Copy-Item `
+        -LiteralPath $ValidatedSource `
+        -Destination $ValidatedDestination `
+        -Force
+}
+
 function Remove-CheckedItem {
     param(
         [Parameter(Mandatory)]
@@ -70,6 +220,16 @@ function Remove-CheckedItem {
         -ParentPath $ParentPath `
         -ChildPath $Path
     if (Test-Path -LiteralPath $ValidatedPath) {
+        if ($Recurse) {
+            Assert-NoReparseTree `
+                -TrustedRoot $ParentPath `
+                -Path $ValidatedPath | Out-Null
+        }
+        else {
+            Assert-NoReparsePoint `
+                -TrustedRoot $ParentPath `
+                -Path $ValidatedPath | Out-Null
+        }
         Remove-Item `
             -LiteralPath $ValidatedPath `
             -Recurse:$Recurse `
@@ -95,6 +255,12 @@ function Move-CheckedItem {
     $ValidatedDestination = Assert-ChildPath `
         -ParentPath $DestinationParent `
         -ChildPath $Destination
+    Assert-NoReparseTree `
+        -TrustedRoot $SourceParent `
+        -Path $ValidatedSource | Out-Null
+    Assert-NoReparseTree `
+        -TrustedRoot $DestinationParent `
+        -Path $ValidatedDestination | Out-Null
     Move-Item `
         -LiteralPath $ValidatedSource `
         -Destination $ValidatedDestination `
@@ -190,10 +356,18 @@ function Assert-Sha256Manifest {
 }
 
 $ProjectRoot = Get-NormalizedPath $ProjectRoot
+$ProjectVolumeRoot = [IO.Path]::GetPathRoot($ProjectRoot)
+Assert-NoReparsePoint `
+    -TrustedRoot $ProjectVolumeRoot `
+    -Path $ProjectRoot | Out-Null
 if (-not $OuterRoot) {
     $OuterRoot = Split-Path -Parent $ProjectRoot
 }
 $OuterRoot = Get-NormalizedPath $OuterRoot
+$OuterVolumeRoot = [IO.Path]::GetPathRoot($OuterRoot)
+Assert-NoReparsePoint `
+    -TrustedRoot $OuterVolumeRoot `
+    -Path $OuterRoot | Out-Null
 $ExpectedOuterRoot = Get-NormalizedPath (Split-Path -Parent $ProjectRoot)
 if (-not $OuterRoot.Equals(
     $ExpectedOuterRoot,
@@ -237,6 +411,9 @@ $ProductIntroName = "$ProductText$IntroductionText.html"
 $ArtifactsRoot = Assert-ChildPath `
     -ParentPath $ProjectRoot `
     -ChildPath (Join-Path $ProjectRoot "artifacts")
+Assert-NoReparsePoint `
+    -TrustedRoot $ProjectRoot `
+    -Path $ArtifactsRoot | Out-Null
 $StagingRoot = Assert-ChildPath `
     -ParentPath $ArtifactsRoot `
     -ChildPath (Join-Path $ArtifactsRoot "delivery-staging-$PID")
@@ -255,10 +432,25 @@ $BackupDelivery = Assert-ChildPath `
 $BackupOuterFiles = Assert-ChildPath `
     -ParentPath $BackupRoot `
     -ChildPath (Join-Path $BackupRoot "outer")
+foreach ($ProtectedArtifactsPath in @(
+    $StagingRoot,
+    $StagedDelivery,
+    $StagedOuterFiles,
+    $BackupRoot,
+    $BackupDelivery,
+    $BackupOuterFiles
+)) {
+    Assert-NoReparsePoint `
+        -TrustedRoot $ArtifactsRoot `
+        -Path $ProtectedArtifactsPath | Out-Null
+}
 
 $DeliveryRoot = Assert-ChildPath `
     -ParentPath $OuterRoot `
     -ChildPath (Join-Path $OuterRoot $DeliveryDirectoryName)
+Assert-NoReparsePoint `
+    -TrustedRoot $OuterRoot `
+    -Path $DeliveryRoot | Out-Null
 $PackageScript = Join-Path $ProjectRoot "scripts\package.ps1"
 $InstallerSource = Join-Path (
     Join-Path $ProjectRoot "artifacts\installer"
@@ -285,7 +477,13 @@ $OuterFileSources = [ordered]@{
     $InstallGuideName = $InstallGuideSource
     $ProductIntroName = $ProductIntroSource
 }
-$LegacyNames = @("ClickGit", "ClickGit.zip")
+$AllowedDeliveryNames = @(
+    $InstallerName,
+    $PortableName,
+    $MacNames[0],
+    $MacNames[1],
+    "SHA256SUMS.txt"
+)
 $BackupOuterNames = @()
 $DeliveryBackedUp = $false
 $NewDeliveryInstalled = $false
@@ -310,6 +508,9 @@ try {
         $ProductIntroSource
     )) {
         Assert-RequiredFile $RequiredFile
+        Assert-NoReparsePoint `
+            -TrustedRoot $ProjectRoot `
+            -Path $RequiredFile | Out-Null
     }
 
     if (Test-Path -LiteralPath $StagingRoot) {
@@ -324,50 +525,51 @@ try {
         $BackupOuterFiles
     ) | Out-Null
 
-    if (Test-Path -LiteralPath $DeliveryRoot -PathType Container) {
-        foreach ($ExistingEntry in Get-ChildItem `
-            -LiteralPath $DeliveryRoot `
-            -Force) {
-            if (
-                $ExistingEntry.Name -in $LegacyNames -or
-                $ExistingEntry.Name -eq "SHA256SUMS.txt"
-            ) {
-                continue
-            }
-            Copy-Item `
-                -LiteralPath $ExistingEntry.FullName `
-                -Destination (Join-Path $StagedDelivery $ExistingEntry.Name) `
-                -Recurse `
-                -Force
-        }
-    }
-
-    Copy-Item `
-        -LiteralPath $InstallerSource `
-        -Destination (Join-Path $StagedDelivery $InstallerName) `
-        -Force
-    Copy-Item `
-        -LiteralPath $PortableSource `
-        -Destination (Join-Path $StagedDelivery $PortableName) `
-        -Force
+    Copy-CheckedFile `
+        -SourceTrustedRoot $ProjectRoot `
+        -Source $InstallerSource `
+        -DestinationTrustedRoot $StagingRoot `
+        -Destination (Join-Path $StagedDelivery $InstallerName)
+    Copy-CheckedFile `
+        -SourceTrustedRoot $ProjectRoot `
+        -Source $PortableSource `
+        -DestinationTrustedRoot $StagingRoot `
+        -Destination (Join-Path $StagedDelivery $PortableName)
     foreach ($MacName in $MacNames) {
         $MacPackageSource = Join-Path $PackageSourceRoot $MacName
+        $MacSource = $null
+        $MacTrustedRoot = $null
         if (Test-Path -LiteralPath $MacPackageSource -PathType Leaf) {
-            Copy-Item `
-                -LiteralPath $MacPackageSource `
-                -Destination (Join-Path $StagedDelivery $MacName) `
-                -Force
+            $MacSource = $MacPackageSource
+            $MacTrustedRoot = $ProjectRoot
+        }
+        else {
+            $ExistingMacSource = Join-Path $DeliveryRoot $MacName
+            if (Test-Path -LiteralPath $ExistingMacSource -PathType Leaf) {
+                $MacSource = $ExistingMacSource
+                $MacTrustedRoot = $OuterRoot
+            }
+        }
+        if ($MacSource) {
+            Copy-CheckedFile `
+                -SourceTrustedRoot $MacTrustedRoot `
+                -Source $MacSource `
+                -DestinationTrustedRoot $StagingRoot `
+                -Destination (Join-Path $StagedDelivery $MacName)
         }
     }
 
-    $UnexpectedDirectories = @(
+    $UnexpectedEntries = @(
         Get-ChildItem -LiteralPath $StagedDelivery -Force |
-            Where-Object { $_.PSIsContainer }
+            Where-Object {
+                $_.PSIsContainer -or
+                $_.Name -notin $AllowedDeliveryNames
+            }
     )
-    if ($UnexpectedDirectories.Count -gt 0) {
+    if ($UnexpectedEntries.Count -gt 0) {
         throw (
-            "Delivery staging must contain files only: " +
-            (($UnexpectedDirectories | Select-Object -ExpandProperty Name) -join ", ")
+            "Delivery staging contains unexpected entries: " +
+            (($UnexpectedEntries | Select-Object -ExpandProperty Name) -join ", ")
         )
     }
     foreach ($RequiredStagedProduct in @(
@@ -378,10 +580,11 @@ try {
     }
 
     foreach ($OuterFileName in $OuterFileSources.Keys) {
-        Copy-Item `
-            -LiteralPath $OuterFileSources[$OuterFileName] `
-            -Destination (Join-Path $StagedOuterFiles $OuterFileName) `
-            -Force
+        Copy-CheckedFile `
+            -SourceTrustedRoot $ProjectRoot `
+            -Source $OuterFileSources[$OuterFileName] `
+            -DestinationTrustedRoot $StagingRoot `
+            -Destination (Join-Path $StagedOuterFiles $OuterFileName)
         Assert-RequiredFile (Join-Path $StagedOuterFiles $OuterFileName)
     }
     Write-Sha256Manifest -DeliveryPath $StagedDelivery
@@ -425,6 +628,20 @@ try {
     }
 
     Assert-Sha256Manifest -DeliveryPath $DeliveryRoot
+    $UnexpectedFinalEntries = @(
+        Get-ChildItem -LiteralPath $DeliveryRoot -Force |
+            Where-Object {
+                $_.PSIsContainer -or
+                $_.Name -notin $AllowedDeliveryNames
+            }
+    )
+    if ($UnexpectedFinalEntries.Count -gt 0) {
+        throw (
+            "Final delivery contains unexpected entries: " +
+            (($UnexpectedFinalEntries |
+                Select-Object -ExpandProperty Name) -join ", ")
+        )
+    }
     $PublishSucceeded = $true
 }
 catch {

@@ -234,6 +234,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
             obsolete_directory.mkdir()
             (obsolete_directory / "stale.dll").write_bytes(b"obsolete")
             (delivery_root / "ClickGit.zip").write_bytes(b"obsolete")
+            unexpected_notes = delivery_root / "unexpected-notes.txt"
+            unexpected_notes.write_text("must be removed", encoding="utf-8")
+            unexpected_directory = delivery_root / "unexpected-directory"
+            unexpected_directory.mkdir()
+            (unexpected_directory / "stale.txt").write_bytes(b"obsolete")
 
             result = self._run_publish_script(
                 powershell,
@@ -249,6 +254,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
             self.assertFalse(obsolete_directory.exists())
             self.assertFalse((delivery_root / "ClickGit.zip").exists())
+            self.assertFalse(unexpected_notes.exists())
+            self.assertFalse(unexpected_directory.exists())
             allowed_delivery_files = {
                 "ClickGit-Windows-x64-Setup.exe",
                 "ClickGit-Windows-x64-Portable.zip",
@@ -264,6 +271,12 @@ class ReleaseConfigurationTests(unittest.TestCase):
             self.assertEqual(
                 {path.name for path in delivery_entries},
                 allowed_delivery_files,
+            )
+            self.assertNotIn(
+                "unexpected-notes.txt",
+                (delivery_root / "SHA256SUMS.txt").read_text(
+                    encoding="utf-8-sig"
+                ),
             )
             for path in delivery_entries:
                 with self.subTest(clean_delivery_entry=path.name):
@@ -317,6 +330,97 @@ class ReleaseConfigurationTests(unittest.TestCase):
             self.assertFalse(
                 (child_outer / "ClickGit-安装包.exe").exists()
             )
+
+            delivery_snapshot = {
+                path.name: path.read_bytes()
+                for path in delivery_root.iterdir()
+            }
+            outer_installer = outer_root / "ClickGit-安装包.exe"
+            outside_outer_target = temporary_root / "outside-outer-target"
+            outside_outer_target.mkdir()
+            outside_outer_marker = outside_outer_target / "marker.txt"
+            outside_outer_marker.write_bytes(b"outer-must-survive")
+            outer_installer.unlink()
+            outer_junction_result = self._create_directory_junction(
+                outer_installer,
+                outside_outer_target,
+            )
+            if outer_junction_result is None:
+                outer_installer.write_bytes(installer_content)
+            else:
+                try:
+                    rollback_result = self._run_publish_script(
+                        powershell,
+                        publish_script,
+                        project_root,
+                        outer_root,
+                    )
+                    self.assertNotEqual(
+                        rollback_result.returncode,
+                        0,
+                        msg=(
+                            "Publishing must reject an outer-file junction.\n"
+                            f"stdout:\n{rollback_result.stdout}\n"
+                            f"stderr:\n{rollback_result.stderr}"
+                        ),
+                    )
+                    restored_snapshot = {
+                        path.name: path.read_bytes()
+                        for path in delivery_root.iterdir()
+                    }
+                    self.assertEqual(restored_snapshot, delivery_snapshot)
+                    self.assertEqual(
+                        outside_outer_marker.read_bytes(),
+                        b"outer-must-survive",
+                    )
+                finally:
+                    is_junction = getattr(
+                        os.path,
+                        "isjunction",
+                        lambda path: False,
+                    )
+                    if is_junction(outer_installer):
+                        os.rmdir(outer_installer)
+                    outer_installer.write_bytes(installer_content)
+
+            shutil.rmtree(delivery_root)
+            outside_delivery = temporary_root / "outside-delivery"
+            outside_delivery.mkdir()
+            outside_marker = outside_delivery / "marker.txt"
+            outside_marker.write_bytes(b"outside-must-survive")
+            junction_result = self._create_directory_junction(
+                delivery_root,
+                outside_delivery,
+            )
+            if junction_result is not None:
+                try:
+                    junction_publish_result = self._run_publish_script(
+                        powershell,
+                        publish_script,
+                        project_root,
+                        outer_root,
+                    )
+                    self.assertNotEqual(
+                        junction_publish_result.returncode,
+                        0,
+                        msg=(
+                            "Publishing must reject a delivery junction.\n"
+                            f"stdout:\n{junction_publish_result.stdout}\n"
+                            f"stderr:\n{junction_publish_result.stderr}"
+                        ),
+                    )
+                    self.assertEqual(
+                        outside_marker.read_bytes(),
+                        b"outside-must-survive",
+                    )
+                finally:
+                    is_junction = getattr(
+                        os.path,
+                        "isjunction",
+                        lambda path: False,
+                    )
+                    if is_junction(delivery_root):
+                        os.rmdir(delivery_root)
 
     @unittest.skipUnless(os.name == "nt", "Windows packaging only")
     def test_windows_package_script_builds_verified_products(self) -> None:
@@ -592,6 +696,35 @@ class ReleaseConfigurationTests(unittest.TestCase):
             timeout=60,
             check=False,
         )
+
+    def _create_directory_junction(
+        self,
+        junction_path: Path,
+        target_path: Path,
+    ) -> subprocess.CompletedProcess[str] | None:
+        command_prompt = shutil.which("cmd.exe")
+        if command_prompt is None:
+            return None
+        result = subprocess.run(
+            [
+                command_prompt,
+                "/d",
+                "/c",
+                "mklink",
+                "/J",
+                str(junction_path),
+                str(target_path),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return result
 
     def _assert_sha256_manifest_matches(self, delivery_root: Path) -> None:
         manifest_path = delivery_root / "SHA256SUMS.txt"
