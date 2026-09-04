@@ -40,6 +40,14 @@ def _find_iscc() -> str | None:
     candidates = [
         shutil.which("ISCC.exe"),
         (
+            Path(os.environ["LOCALAPPDATA"])
+            / "Programs"
+            / "Inno Setup 6"
+            / "ISCC.exe"
+            if os.environ.get("LOCALAPPDATA")
+            else None
+        ),
+        (
             Path(os.environ["ProgramFiles(x86)"])
             / "Inno Setup 6"
             / "ISCC.exe"
@@ -358,17 +366,28 @@ class ReleaseConfigurationTests(unittest.TestCase):
                     verify_exit_code=19,
                 )
             )
+            iscc_marker = project_root / "iscc.marker"
+            fake_iscc = project_root / "scripts" / "fake-iscc.cmd"
+            fake_iscc.write_text(
+                (
+                    '@echo invoked>"%CLICKGIT_ISCC_MARKER%"\n'
+                    "@exit /b 0\n"
+                ),
+                encoding="utf-8",
+            )
 
             result = self._run_package_script(
                 powershell,
                 package_script,
                 project_root,
                 verify_script,
-                powershell,
+                str(fake_iscc),
                 marker,
+                iscc_marker=iscc_marker,
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertTrue(marker.is_file())
+            self.assertFalse(iscc_marker.exists())
             self.assertFalse(
                 (
                     project_root
@@ -453,9 +472,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
         verify_script: Path,
         iscc_path: str,
         marker: Path,
+        *,
+        iscc_marker: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["CLICKGIT_VERIFY_MARKER"] = str(marker)
+        if iscc_marker is not None:
+            environment["CLICKGIT_ISCC_MARKER"] = str(iscc_marker)
         return subprocess.run(
             [
                 powershell,
