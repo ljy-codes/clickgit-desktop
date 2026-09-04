@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClickGit 安装说明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #f4f6f8;
+      --surface: #ffffff;
+      --text: #18212b;
+      --muted: #5d6975;
+      --border: #d8dee5;
+      --accent: #1267a5;
+      --accent-soft: #e9f3fa;
+      --warning: #815600;
+      --warning-soft: #fff4d6;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 760px);
+      gap: 40px;
+      width: min(1080px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 48px 0 72px;
+    }
+
+    nav {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      padding: 18px 0;
+      border-top: 3px solid var(--accent);
+      border-bottom: 1px solid var(--border);
+    }
+
+    nav strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    nav a {
+      display: block;
+      padding: 5px 0;
+      color: var(--muted);
+      font-size: 14px;
+      text-decoration: none;
+    }
+
+    nav a:hover {
+      color: var(--accent);
+    }
+
+    main {
+      min-width: 0;
+    }
+
+    header {
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1,
+    h2,
+    h3 {
+      letter-spacing: 0;
+      line-height: 1.3;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+    }
+
+    h2 {
+      margin: 42px 0 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 23px;
+    }
+
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 17px;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    .summary {
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    ol,
+    ul {
+      padding-left: 22px;
+    }
+
+    li + li {
+      margin-top: 7px;
+    }
+
+    code {
+      padding: 2px 6px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface);
+      font-family: Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .note,
+    .warning {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .warning {
+      border-left-color: var(--warning);
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      width: 28%;
+      background: #eef1f4;
+    }
+
+    @media (max-width: 760px) {
+      .layout {
+        display: block;
+        width: min(100% - 28px, 760px);
+        padding-top: 24px;
+      }
+
+      nav {
+        position: static;
+        margin-bottom: 32px;
+      }
+
+      nav a {
+        display: inline-block;
+        margin-right: 14px;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+
+      h2 {
+        font-size: 21px;
+      }
+
+      table,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+        width: 100%;
+      }
+
+      th {
+        border-bottom: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav aria-label="文档目录">
+      <strong>安装说明</strong>
+      <a href="#windows-setup">Windows 安装版</a>
+      <a href="#windows-portable">Windows 便携版</a>
+      <a href="#macos">macOS</a>
+      <a href="#first-use">首次使用</a>
+      <a href="#uninstall">卸载与数据</a>
+    </nav>
+
+    <main>
+      <header>
+        <h1>ClickGit 安装说明</h1>
+        <p class="summary">
+          根据操作系统选择对应安装包。ClickGit 已自带 Windows 所需的 Git
+          运行环境，日常使用不需要输入 Git 命令。
+        </p>
+      </header>
+
+      <section>
+        <h2 id="windows-setup">Windows 安装版</h2>
+        <ol>
+          <li>双击 <code>ClickGit-Windows-x64-Setup.exe</code>。</li>
+          <li>按安装向导选择安装位置和是否创建桌面快捷方式。</li>
+          <li>完成安装后，从开始菜单或桌面打开 ClickGit。</li>
+        </ol>
+        <div class="warning">
+          当前安装包未进行商业代码签名。Windows
+          可能显示“未知发布者”，请确认文件来自项目的正式发布页并核对
+          SHA-256 后继续。
+        </div>
+      </section>
+
+      <section>
+        <h2 id="windows-portable">Windows 便携版</h2>
+        <ol>
+          <li>解压 <code>ClickGit-Windows-x64-Portable.zip</code>。</li>
+          <li>保持 <code>ClickGit</code> 文件夹内部结构不变。</li>
+          <li>双击文件夹中的 <code>ClickGit.exe</code>。</li>
+        </ol>
+        <p class="note">
+          不要只复制 EXE。<code>_internal</code> 和
+          <code>runtime</code> 是程序运行所需内容。
+        </p>
+      </section>
+
+      <section>
+        <h2 id="macos">macOS</h2>
+        <table>
+          <tbody>
+            <tr>
+              <th>Apple 芯片</th>
+              <td><code>ClickGit-macOS-arm64.zip</code></td>
+            </tr>
+            <tr>
+              <th>Intel 芯片</th>
+              <td><code>ClickGit-macOS-x64.zip</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <ol>
+          <li>解压与电脑架构一致的 ZIP。</li>
+          <li>将 <code>ClickGit.app</code> 拖入“应用程序”。</li>
+          <li>首次启动若被系统拦截，在“系统设置 → 隐私与安全性”中确认打开。</li>
+        </ol>
+        <p>
+          macOS 版本使用系统中可用的 Git。可先安装 Apple Command Line Tools，
+          再启动 ClickGit。
+        </p>
+      </section>
+
+      <section>
+        <h2 id="first-use">首次使用</h2>
+        <ol>
+          <li>打开 ClickGit，点击“打开仓库”选择已有项目，或点击“克隆仓库”。</li>
+          <li>首次提交前，在设置中填写 Git 用户名和邮箱。</li>
+          <li>连接 GitHub 私有仓库时，按界面提示完成凭据或 SSH 配置。</li>
+          <li>执行提交、拉取或推送前，先确认当前仓库和分支名称。</li>
+        </ol>
+        <p class="note">
+          建议在第一次同步前备份重要文件。发生冲突时先查看冲突列表，
+          确认内容后再标记为已解决。
+        </p>
+      </section>
+
+      <section>
+        <h2 id="uninstall">卸载与数据</h2>
+        <h3>Windows 安装版</h3>
+        <p>
+          在 Windows“设置 → 应用”中找到 ClickGit 并卸载，也可以使用开始菜单中的
+          卸载入口。
+        </p>
+        <h3>Windows 便携版与 macOS</h3>
+        <p>
+          退出程序后删除 ClickGit 文件夹或 <code>ClickGit.app</code> 即可。
+        </p>
+        <p>
+          卸载 ClickGit 不会删除已经打开或克隆的 Git 仓库。删除仓库属于独立文件操作，
+          请在确认备份和远程同步状态后进行。
+        </p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

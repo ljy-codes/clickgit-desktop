@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClickGit 产品介绍</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #f5f6f7;
+      --surface: #ffffff;
+      --text: #19222c;
+      --muted: #5d6873;
+      --border: #d8dee4;
+      --accent: #146c94;
+      --accent-soft: #e8f3f7;
+      --success: #26734d;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    main {
+      width: min(920px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 46px 0 72px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1,
+    h2,
+    h3 {
+      letter-spacing: 0;
+      line-height: 1.3;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+    }
+
+    h2 {
+      margin: 40px 0 16px;
+      font-size: 23px;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+
+    p {
+      margin: 8px 0;
+    }
+
+    .summary {
+      max-width: 650px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .mode {
+      padding: 8px 12px;
+      border: 1px solid #acd1c0;
+      border-radius: 4px;
+      background: #edf8f2;
+      color: var(--success);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .workflow article {
+      min-height: 150px;
+      padding: 18px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .workflow strong {
+      display: inline-block;
+      min-width: 30px;
+      margin-bottom: 12px;
+      color: var(--accent);
+      font-family: Consolas, monospace;
+    }
+
+    .workflow p,
+    .detail p {
+      color: var(--muted);
+    }
+
+    .detail {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px 28px;
+      padding: 24px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .principles {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .principles div {
+      padding: 18px;
+      border-right: 1px solid var(--border);
+    }
+
+    .principles div:last-child {
+      border-right: 0;
+    }
+
+    @media (max-width: 720px) {
+      main {
+        padding-top: 28px;
+      }
+
+      header {
+        display: block;
+      }
+
+      .mode {
+        display: inline-block;
+        margin-top: 18px;
+      }
+
+      .workflow,
+      .detail,
+      .principles {
+        grid-template-columns: 1fr;
+      }
+
+      .principles div {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .principles div:last-child {
+        border-bottom: 0;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>ClickGit</h1>
+        <p class="summary">
+          面向不使用 Git 命令行的桌面工具，把常见版本管理流程整理为明确的界面状态和按钮操作。
+          从打开项目到处理冲突，全程支持完全点击操作。
+        </p>
+      </div>
+      <span class="mode">Windows / macOS</span>
+    </header>
+
+    <section>
+      <h2>日常工作流</h2>
+      <div class="workflow">
+        <article>
+          <strong>01</strong>
+          <h3>打开与克隆</h3>
+          <p>打开本地 Git 仓库，或填写远程地址克隆项目，并保留常用仓库入口。</p>
+        </article>
+        <article>
+          <strong>02</strong>
+          <h3>检查与提交</h3>
+          <p>查看文件变化和差异，选择需要记录的文件，填写说明后完成提交。</p>
+        </article>
+        <article>
+          <strong>03</strong>
+          <h3>同步远程</h3>
+          <p>通过拉取、获取和推送完成同步，操作前显示当前仓库和分支状态。</p>
+        </article>
+        <article>
+          <strong>04</strong>
+          <h3>管理分支</h3>
+          <p>创建、切换、合并和删除分支，减少分支名称与当前上下文混淆。</p>
+        </article>
+        <article>
+          <strong>05</strong>
+          <h3>处理冲突</h3>
+          <p>集中显示冲突文件，完成内容确认后再标记解决并继续合并流程。</p>
+        </article>
+        <article>
+          <strong>06</strong>
+          <h3>恢复变更</h3>
+          <p>按文件撤销未提交修改，并通过历史与储藏功能找回或隔离工作内容。</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>操作范围</h2>
+      <div class="detail">
+        <div>
+          <h3>仓库与历史</h3>
+          <p>状态检查、提交历史、差异查看、标签、远程仓库与基础维护。</p>
+        </div>
+        <div>
+          <h3>进阶项目结构</h3>
+          <p>支持 Worktree、子模块、Git LFS 等常见工程场景。</p>
+        </div>
+        <div>
+          <h3>凭据与隐私</h3>
+          <p>调用系统 Git 和凭据能力，不要求把账号密码写进项目文件。</p>
+        </div>
+        <div>
+          <h3>风险提示</h3>
+          <p>对覆盖、删除和恢复等操作提供确认信息，保留可判断的操作结果。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>产品原则</h2>
+      <div class="principles">
+        <div>
+          <h3>看得懂</h3>
+          <p>使用仓库、文件、分支和同步等界面语言表达 Git 状态。</p>
+        </div>
+        <div>
+          <h3>点得动</h3>
+          <p>核心流程提供完整按钮入口，不要求记忆或输入命令。</p>
+        </div>
+        <div>
+          <h3>可确认</h3>
+          <p>执行前明确对象，执行后展示结果，异常时保留可处理信息。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
