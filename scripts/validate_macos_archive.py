@@ -15,6 +15,14 @@ CPU_TYPES = {
 }
 
 
+def _console_safe(text: str, stream: object) -> str:
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    return text.encode(
+        encoding,
+        errors="backslashreplace",
+    ).decode(encoding)
+
+
 def validate_archive(
     archive_path: Path,
     architecture: str,
@@ -89,10 +97,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         validate_archive(args.archive, args.architecture, args.version)
     except (OSError, ValueError) as exc:
-        print(f"Invalid macOS package: {exc}", file=sys.stderr)
+        print(
+            _console_safe(f"Invalid macOS package: {exc}", sys.stderr),
+            file=sys.stderr,
+        )
         return 1
     print(
-        f"macOS archive verified for {args.architecture}: {args.archive}"
+        _console_safe(
+            f"macOS archive verified for {args.architecture}: {args.archive}",
+            sys.stdout,
+        )
     )
     return 0
 

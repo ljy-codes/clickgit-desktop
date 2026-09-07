@@ -876,6 +876,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         project_root: Path,
         outer_root: Path,
     ) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "cp1252"
         return subprocess.run(
             [
                 powershell,
@@ -899,6 +901,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
             errors="replace",
             timeout=60,
             check=False,
+            env=environment,
         )
 
     def _write_windows_build_manifest(
