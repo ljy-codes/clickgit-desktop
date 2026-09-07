@@ -431,6 +431,8 @@ class ProjectMetadataTests(unittest.TestCase):
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
         required_sections = (
             "## 下载",
+            "### 当前稳定版 v0.1.0",
+            "### 下一版本交付格式与本地构建产物",
             "## 快速开始",
             "## 功能矩阵",
             "## 安全与恢复",
@@ -459,6 +461,10 @@ class ProjectMetadataTests(unittest.TestCase):
             ),
             (
                 "https://github.com/ljy-codes/clickgit-desktop/releases/"
+                "download/windows-v0.1.0/ClickGit-Windows-x64.zip"
+            ),
+            (
+                "https://github.com/ljy-codes/clickgit-desktop/releases/"
                 "download/mac-v0.1.0/ClickGit-macOS-arm64.zip"
             ),
             (
@@ -468,6 +474,54 @@ class ProjectMetadataTests(unittest.TestCase):
         ):
             with self.subTest(download_url=download_url):
                 self.assertIn(download_url, readme)
+
+        current_release = readme.split(
+            "### 当前稳定版 v0.1.0",
+            maxsplit=1,
+        )[1].split(
+            "### 下一版本交付格式与本地构建产物",
+            maxsplit=1,
+        )[0]
+        next_release_format = readme.split(
+            "### 下一版本交付格式与本地构建产物",
+            maxsplit=1,
+        )[1].split("## 快速开始", maxsplit=1)[0]
+        windows_quick_start = readme.split(
+            "### Windows",
+            maxsplit=1,
+        )[1].split("### macOS", maxsplit=1)[0]
+
+        current_windows_url = (
+            "https://github.com/ljy-codes/clickgit-desktop/releases/"
+            "download/windows-v0.1.0/ClickGit-Windows-x64.zip"
+        )
+        self.assertIn(current_windows_url, current_release)
+        self.assertIn("ClickGit-Windows-x64.zip", current_release)
+        self.assertIn("历史便携包", current_release)
+        self.assertNotIn(
+            "ClickGit-Windows-x64-Setup.exe",
+            current_release,
+        )
+        self.assertNotIn(
+            "ClickGit-Windows-x64-Portable.zip",
+            current_release,
+        )
+
+        self.assertIn(
+            "ClickGit-Windows-x64-Setup.exe",
+            next_release_format,
+        )
+        self.assertIn(
+            "ClickGit-Windows-x64-Portable.zip",
+            next_release_format,
+        )
+        self.assertIn("本地构建产物", next_release_format)
+        self.assertIn("尚未作为当前稳定版附件发布", next_release_format)
+
+        self.assertIn(current_windows_url, windows_quick_start)
+        self.assertIn("ClickGit-Windows-x64.zip", windows_quick_start)
+        self.assertIn("新版本发布后", windows_quick_start)
+        self.assertIn("优先安装版", windows_quick_start)
 
         for required_text in (
             "ClickGit-Windows-x64-Setup.exe",
@@ -481,7 +535,6 @@ class ProjectMetadataTests(unittest.TestCase):
         ):
             with self.subTest(required_text=required_text):
                 self.assertIn(required_text, readme)
-        self.assertNotIn("ClickGit-Windows-x64.zip", readme)
         self.assertIn(
             "使用 Git LFS 功能时还需安装 Git LFS",
             readme,

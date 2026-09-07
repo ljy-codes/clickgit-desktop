@@ -10,36 +10,42 @@ ClickGit 是面向完全不使用 Git 命令行用户的 Windows 和 macOS 桌�
 
 ## 下载
 
-当前版本记录为 `v0.1.0`，Windows 和 macOS 分别使用以下 Release：
+### 当前稳定版 v0.1.0
 
 - [`windows-v0.1.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/windows-v0.1.0)
-  - `ClickGit-Windows-x64-Setup.exe`：安装版优先
-  - `ClickGit-Windows-x64-Portable.zip`：便携版备用
+  - [`ClickGit-Windows-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.1.0/ClickGit-Windows-x64.zip)：历史便携包
 - [`mac-v0.1.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/mac-v0.1.0)
   - [`ClickGit-macOS-arm64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-arm64.zip)：macOS Apple Silicon
   - [`ClickGit-macOS-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-x64.zip)：macOS Intel
 
-Windows 安装版和便携版均包含 PortableGit，不要求另外安装 Git、Python 或
-Qt。安装版优先，适合普通用户；便携版备用，适合无安装权限或需要随身携带
-的场景。上述 Windows 文件名是当前发布流程的产物约定，不表示尚未执行的
-GitHub 发布已经完成。macOS 版本包含应用运行环境，但需要系统 Git；
+当前稳定版的 Windows Release 只有上述历史便携包，不包含新版安装包。macOS
+版本包含应用运行环境，但需要系统 Git。
 使用 Git LFS 功能时还需安装 Git LFS。
+
+### 下一版本交付格式与本地构建产物
+
+本地执行 `scripts\package.ps1` 后，Windows 会生成：
+
+- `ClickGit-Windows-x64-Setup.exe`：安装版优先，适合普通用户
+- `ClickGit-Windows-x64-Portable.zip`：便携版备用，适合无安装权限或需要随身携带的场景
+
+这两个新文件名是下一版本的交付格式和本地构建产物。
+它们尚未作为当前稳定版附件发布。两种包均包含 PortableGit，不要求另外安装
+Git、Python 或 Qt。
 
 ## 快速开始
 
 ### Windows
 
-安装版优先：
+当前稳定版 `v0.1.0`：
 
-1. 下载 `ClickGit-Windows-x64-Setup.exe`。
-2. 双击安装包，按安装向导完成安装。
-3. 从开始菜单或桌面快捷方式启动 ClickGit。
+1. 下载 [`ClickGit-Windows-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.1.0/ClickGit-Windows-x64.zip)。
+2. 完整解压下载的历史便携包。
+3. 保留解压后的完整 `ClickGit` 目录，不单独移动其中的 EXE。
+4. 双击 `ClickGit.exe`。
 
-便携版备用：
-
-1. 下载并完整解压 `ClickGit-Windows-x64-Portable.zip`。
-2. 保留解压后的完整 `ClickGit` 目录，不单独移动其中的 EXE。
-3. 双击 `ClickGit.exe`。
+新版本发布后，普通用户优先安装版；无安装权限或需要随身携带时再使用便携版
+备用。
 
 启动后，点击“打开仓库”“克隆”或“新建仓库”，勾选文件并点击“暂存”，
 输入提交说明后点击“提交暂存内容”，再使用“获取”“拉取”和“推送”同步
