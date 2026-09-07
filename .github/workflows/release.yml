@@ -42,9 +42,11 @@ jobs:
 
       - name: Resolve release version
         shell: pwsh
+        env:
+          RELEASE_INPUT: ${{ inputs.version }}
         run: |
           if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
-            $ReleaseVersion = "${{ inputs.version }}"
+            $ReleaseVersion = $env:RELEASE_INPUT
           }
           else {
             $ReleaseVersion = $env:GITHUB_REF_NAME -replace "^release-v", ""
@@ -57,13 +59,23 @@ jobs:
         shell: pwsh
         run: scripts/package.ps1 -Version $env:RELEASE_VERSION
 
+      - name: Stage Windows release assets
+        shell: pwsh
+        run: |
+          $ReleaseDirectory = "artifacts\release\windows-x64"
+          if (Test-Path -LiteralPath $ReleaseDirectory) {
+            Remove-Item -LiteralPath $ReleaseDirectory -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $ReleaseDirectory |
+            Out-Null
+          Copy-Item -LiteralPath "artifacts\installer\ClickGit-Windows-x64-Setup.exe" -Destination $ReleaseDirectory
+          Copy-Item -LiteralPath "artifacts\package\ClickGit-Windows-x64-Portable.zip" -Destination $ReleaseDirectory
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
-          path: |
-            artifacts/installer/ClickGit-Windows-x64-Setup.exe
-            artifacts/package/ClickGit-Windows-x64-Portable.zip
+          path: artifacts/release/windows-x64
           if-no-files-found: error
 
   macos:
@@ -126,11 +138,52 @@ jobs:
 
       - name: Create releases and upload assets
         shell: bash
+        env:
+          RELEASE_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
+          resolve_tag_commit() {
+            local tag="$1"
+            local object_type
+            local object_sha
+            local depth=0
+
+            read -r object_type object_sha < <(
+              gh api "repos/${GH_REPO}/git/ref/tags/${tag}" \
+                --jq '.object | [.type, .sha] | @tsv'
+            )
+            while [[ "$object_type" == "tag" ]]; do
+              ((depth += 1))
+              if (( depth > 16 )); then
+                echo "Tag ${tag} has too many annotation levels." >&2
+                return 1
+              fi
+              read -r object_type object_sha < <(
+                gh api "repos/${GH_REPO}/git/tags/${object_sha}" \
+                  --jq '.object | [.type, .sha] | @tsv'
+              )
+            done
+            if [[ "$object_type" != "commit" ]]; then
+              echo "Tag ${tag} resolves to unsupported type ${object_type}." >&2
+              return 1
+            fi
+            printf '%s\n' "$object_sha"
+          }
+
+          assert_release_tag_target() {
+            local tag="$1"
+            local resolved_sha
+
+            resolved_sha="$(resolve_tag_commit "$tag")"
+            if [[ "$resolved_sha" != "$GITHUB_SHA" ]]; then
+              echo "Tag ${tag} targets ${resolved_sha}, expected ${GITHUB_SHA}." >&2
+              return 1
+            fi
+          }
+
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            VERSION="${{ inputs.version }}"
+            VERSION="$RELEASE_INPUT"
           else
             VERSION="${GITHUB_REF_NAME#release-v}"
           fi
@@ -142,14 +195,29 @@ jobs:
           MAC_ARM_ASSET="release-assets/macos-arm64/ClickGit-macOS-arm64.zip"
           MAC_X64_ASSET="release-assets/macos-x64/ClickGit-macOS-x64.zip"
 
-          if ! gh release view "$WINDOWS_TAG" >/dev/null 2>&1; then
+          test -f "$WINDOWS_SETUP"
+          test -f "$WINDOWS_PORTABLE"
+          test -f "$MAC_ARM_ASSET"
+          test -f "$MAC_X64_ASSET"
+
+          if gh release view "$WINDOWS_TAG" >/dev/null 2>&1; then
+            assert_release_tag_target "$WINDOWS_TAG"
+          else
+            if gh api "repos/${GH_REPO}/git/ref/tags/${WINDOWS_TAG}" >/dev/null 2>&1; then
+              assert_release_tag_target "$WINDOWS_TAG"
+            fi
             gh release create "$WINDOWS_TAG" \
               --draft \
               --target "$GITHUB_SHA" \
               --title "ClickGit Windows v${VERSION}" \
               --notes "Windows x64 安装版优先使用；便携版作为免安装备用。"
           fi
-          if ! gh release view "$MAC_TAG" >/dev/null 2>&1; then
+          if gh release view "$MAC_TAG" >/dev/null 2>&1; then
+            assert_release_tag_target "$MAC_TAG"
+          else
+            if gh api "repos/${GH_REPO}/git/ref/tags/${MAC_TAG}" >/dev/null 2>&1; then
+              assert_release_tag_target "$MAC_TAG"
+            fi
             gh release create "$MAC_TAG" \
               --draft \
               --target "$GITHUB_SHA" \

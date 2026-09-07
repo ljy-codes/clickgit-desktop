@@ -897,8 +897,22 @@ class ReleaseConfigurationTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("RELEASE_VERSION=", workflow)
-        self.assertIn('"${{ inputs.version }}"', workflow)
+        input_expression_lines = [
+            line.strip()
+            for line in workflow.splitlines()
+            if "${{ inputs.version }}" in line
+        ]
+        self.assertEqual(
+            input_expression_lines,
+            ["RELEASE_INPUT: ${{ inputs.version }}"] * 2,
+        )
+        self.assertIn("$ReleaseVersion = $env:RELEASE_INPUT", workflow)
         self.assertIn("$env:GITHUB_REF_NAME", workflow)
+        self.assertNotIn(
+            '$ReleaseVersion = "${{ inputs.version }}"',
+            workflow,
+        )
+        self.assertNotIn('VERSION="${{ inputs.version }}"', workflow)
         self.assertNotIn("scripts/build.ps1", workflow)
         self.assertNotIn("scripts/verify-package.ps1", workflow)
         self.assertNotIn("Compress-Archive", workflow)
@@ -909,11 +923,40 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("ClickGit-macOS-x64.zip", workflow)
         self.assertIn(
             (
+                '$ReleaseDirectory = "artifacts\\release\\windows-x64"'
+            ),
+            workflow,
+        )
+        self.assertIn(
+            "if (Test-Path -LiteralPath $ReleaseDirectory) {",
+            workflow,
+        )
+        self.assertNotIn("-ErrorAction SilentlyContinue", workflow)
+        self.assertIn(
+            (
+                'Copy-Item -LiteralPath "artifacts\\installer\\'
+                'ClickGit-Windows-x64-Setup.exe" '
+                "-Destination $ReleaseDirectory"
+            ),
+            workflow,
+        )
+        self.assertIn(
+            (
+                'Copy-Item -LiteralPath "artifacts\\package\\'
+                'ClickGit-Windows-x64-Portable.zip" '
+                "-Destination $ReleaseDirectory"
+            ),
+            workflow,
+        )
+        self.assertIn(
+            "path: artifacts/release/windows-x64",
+            normalized_workflow,
+        )
+        self.assertNotIn(
+            (
                 "path: |\n"
                 "            artifacts/installer/"
-                "ClickGit-Windows-x64-Setup.exe\n"
-                "            artifacts/package/"
-                "ClickGit-Windows-x64-Portable.zip"
+                "ClickGit-Windows-x64-Setup.exe"
             ),
             normalized_workflow,
         )
@@ -921,6 +964,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
             "artifacts/package/${{ matrix.archive }}",
             workflow,
         )
+        package_index = workflow.index("scripts/package.ps1")
+        staging_index = workflow.index("$ReleaseDirectory")
+        upload_index = workflow.index("uses: actions/upload-artifact@v4")
+        self.assertLess(package_index, staging_index)
+        self.assertLess(staging_index, upload_index)
 
     def test_release_workflow_creates_windows_and_mac_releases(self) -> None:
         workflow = (
@@ -935,7 +983,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("--draft", workflow)
         self.assertIn("--clobber", workflow)
         self.assertIn("GH_REPO: ${{ github.repository }}", workflow)
-        self.assertIn('VERSION="${{ inputs.version }}"', workflow)
+        self.assertIn('VERSION="$RELEASE_INPUT"', workflow)
         self.assertIn('VERSION="${VERSION%%-retry*}"', workflow)
         self.assertIn(
             (
@@ -959,6 +1007,96 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 "            --clobber"
             ),
             workflow,
+        )
+        required_asset_checks = (
+            'test -f "$WINDOWS_SETUP"',
+            'test -f "$WINDOWS_PORTABLE"',
+            'test -f "$MAC_ARM_ASSET"',
+            'test -f "$MAC_X64_ASSET"',
+        )
+        self.assertEqual(workflow.count("test -f "), 4)
+        for asset_check in required_asset_checks:
+            with self.subTest(asset_check=asset_check):
+                self.assertIn(asset_check, workflow)
+        self.assertIn("resolve_tag_commit() {", workflow)
+        self.assertIn(
+            'gh api "repos/${GH_REPO}/git/ref/tags/${tag}"',
+            workflow,
+        )
+        self.assertIn(
+            'gh api "repos/${GH_REPO}/git/tags/${object_sha}"',
+            workflow,
+        )
+        self.assertIn(
+            'while [[ "$object_type" == "tag" ]]; do',
+            workflow,
+        )
+        self.assertIn(
+            'if [[ "$object_type" != "commit" ]]; then',
+            workflow,
+        )
+        self.assertIn("assert_release_tag_target() {", workflow)
+        self.assertIn(
+            'if [[ "$resolved_sha" != "$GITHUB_SHA" ]]; then',
+            workflow,
+        )
+        self.assertIn(
+            'assert_release_tag_target "$WINDOWS_TAG"',
+            workflow,
+        )
+        self.assertIn(
+            'assert_release_tag_target "$MAC_TAG"',
+            workflow,
+        )
+        self.assertIn(
+            (
+                'if gh api "repos/${GH_REPO}/git/ref/tags/'
+                '${WINDOWS_TAG}" >/dev/null 2>&1; then'
+            ),
+            workflow,
+        )
+        self.assertIn(
+            (
+                'if gh api "repos/${GH_REPO}/git/ref/tags/'
+                '${MAC_TAG}" >/dev/null 2>&1; then'
+            ),
+            workflow,
+        )
+        self.assertEqual(workflow.count('--target "$GITHUB_SHA"'), 2)
+        asset_check_index = workflow.index(
+            'test -f "$MAC_X64_ASSET"'
+        )
+        windows_tag_check_index = workflow.index(
+            (
+                'if gh api "repos/${GH_REPO}/git/ref/tags/'
+                '${WINDOWS_TAG}"'
+            )
+        )
+        self.assertIn(
+            'if gh release view "$WINDOWS_TAG"',
+            workflow,
+        )
+        windows_release_check_index = workflow.index(
+            'if gh release view "$WINDOWS_TAG"'
+        )
+        windows_upload_index = workflow.index(
+            'gh release upload "$WINDOWS_TAG"'
+        )
+        mac_upload_index = workflow.index('gh release upload "$MAC_TAG"')
+        self.assertLess(asset_check_index, windows_tag_check_index)
+        self.assertLess(
+            windows_release_check_index,
+            workflow.index(
+                'assert_release_tag_target "$WINDOWS_TAG"'
+            ),
+        )
+        self.assertLess(
+            windows_release_check_index,
+            windows_upload_index,
+        )
+        self.assertLess(
+            workflow.index('assert_release_tag_target "$MAC_TAG"'),
+            mac_upload_index,
         )
         self.assertIn("安装版", workflow)
         self.assertIn("便携版", workflow)
