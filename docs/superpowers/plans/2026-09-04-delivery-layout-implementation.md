@@ -409,7 +409,7 @@ git commit -m "ci: publish Windows installer and portable package"
 - Modify: `tests/test_project_metadata.py`
 - Modify: outer `文件夹说明.txt`
 
-- [ ] **Step 1: Update metadata assertions**
+- [x] **Step 1: Update metadata assertions**
 
 Require README references to:
 
@@ -420,17 +420,17 @@ scripts\package.ps1
 scripts\publish.ps1
 ```
 
-- [ ] **Step 2: Verify metadata test failure**
+- [x] **Step 2: Verify metadata test failure**
 
 Run `tests.test_project_metadata`. Expected: failure until README is updated.
 
-- [ ] **Step 3: Update README and changelog**
+- [x] **Step 3: Update README and changelog**
 
 Document installer-first Windows usage, portable ZIP fallback, local
 packaging commands, macOS architecture packages, and the clean delivery
 layout. Record the change under `Unreleased / Changed`.
 
-- [ ] **Step 4: Update outer folder explanation**
+- [x] **Step 4: Update outer folder explanation**
 
 Replace the obsolete statement that delivery files must not be adjusted.
 Describe:
@@ -439,7 +439,7 @@ Describe:
 - `交付产品`: final packages and checksums only.
 - root installer and HTML files: direct user entry points.
 
-- [ ] **Step 5: Run metadata tests and commit**
+- [x] **Step 5: Run metadata tests and commit**
 
 Run `tests.test_project_metadata`. Expected: all tests pass.
 
