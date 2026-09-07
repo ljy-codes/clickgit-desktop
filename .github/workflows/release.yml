@@ -36,27 +36,34 @@ jobs:
         shell: pwsh
         run: scripts/download-portable-git.ps1
 
-      - name: Build and test Windows package
+      - name: Install Inno Setup 6
         shell: pwsh
-        run: scripts/build.ps1
+        run: choco install innosetup --no-progress -y
 
-      - name: Verify Windows package
-        shell: pwsh
-        run: scripts/verify-package.ps1
-
-      - name: Archive Windows package
+      - name: Resolve release version
         shell: pwsh
         run: |
-          $Archive = "artifacts\package\ClickGit-Windows-x64.zip"
-          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Archive) | Out-Null
-          Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path "artifacts\publish\windows-x64\ClickGit" -DestinationPath $Archive
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            $ReleaseVersion = "${{ inputs.version }}"
+          }
+          else {
+            $ReleaseVersion = $env:GITHUB_REF_NAME -replace "^release-v", ""
+          }
+          $ReleaseVersion = $ReleaseVersion -replace "-retry.*$", ""
+          "RELEASE_VERSION=$ReleaseVersion" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build and package Windows products
+        shell: pwsh
+        run: scripts/package.ps1 -Version $env:RELEASE_VERSION
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
-          path: artifacts/package/ClickGit-Windows-x64.zip
+          path: |
+            artifacts/installer/ClickGit-Windows-x64-Setup.exe
+            artifacts/package/ClickGit-Windows-x64-Portable.zip
           if-no-files-found: error
 
   macos:
@@ -130,7 +137,8 @@ jobs:
           VERSION="${VERSION%%-retry*}"
           WINDOWS_TAG="windows-v${VERSION}"
           MAC_TAG="mac-v${VERSION}"
-          WINDOWS_ASSET="release-assets/windows-x64/ClickGit-Windows-x64.zip"
+          WINDOWS_SETUP="release-assets/windows-x64/ClickGit-Windows-x64-Setup.exe"
+          WINDOWS_PORTABLE="release-assets/windows-x64/ClickGit-Windows-x64-Portable.zip"
           MAC_ARM_ASSET="release-assets/macos-arm64/ClickGit-macOS-arm64.zip"
           MAC_X64_ASSET="release-assets/macos-x64/ClickGit-macOS-x64.zip"
 
@@ -139,7 +147,7 @@ jobs:
               --draft \
               --target "$GITHUB_SHA" \
               --title "ClickGit Windows v${VERSION}" \
-              --notes "Windows x64 便携版，解压后运行 ClickGit.exe。"
+              --notes "Windows x64 安装版优先使用；便携版作为免安装备用。"
           fi
           if ! gh release view "$MAC_TAG" >/dev/null 2>&1; then
             gh release create "$MAC_TAG" \
@@ -149,7 +157,10 @@ jobs:
               --notes "macOS 版本包含 Apple Silicon 与 Intel 两个安装包。"
           fi
 
-          gh release upload "$WINDOWS_TAG" "$WINDOWS_ASSET" --clobber
+          gh release upload "$WINDOWS_TAG" \
+            "$WINDOWS_SETUP" \
+            "$WINDOWS_PORTABLE" \
+            --clobber
           gh release upload "$MAC_TAG" \
             "$MAC_ARM_ASSET" \
             "$MAC_X64_ASSET" \

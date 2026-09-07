@@ -877,6 +877,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         workflow = (
             PROJECT_ROOT / ".github" / "workflows" / "release.yml"
         ).read_text(encoding="utf-8")
+        normalized_workflow = workflow.replace("\\", "/")
 
         self.assertIn('tags:\n      - "release-v*"', workflow)
         self.assertIn("workflow_dispatch:", workflow)
@@ -886,20 +887,39 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("runner: macos-15\n", workflow)
         self.assertIn("macos-15-intel", workflow)
         self.assertNotIn("macos-15-arm64", workflow)
-        self.assertIn("ClickGit-Windows-x64.zip", workflow)
+        self.assertIn(
+            "choco install innosetup --no-progress -y",
+            workflow,
+        )
+        self.assertEqual(workflow.count("scripts/package.ps1"), 1)
+        self.assertIn(
+            "scripts/package.ps1 -Version $env:RELEASE_VERSION",
+            workflow,
+        )
+        self.assertIn("RELEASE_VERSION=", workflow)
+        self.assertIn('"${{ inputs.version }}"', workflow)
+        self.assertIn("$env:GITHUB_REF_NAME", workflow)
+        self.assertNotIn("scripts/build.ps1", workflow)
+        self.assertNotIn("scripts/verify-package.ps1", workflow)
+        self.assertNotIn("Compress-Archive", workflow)
+        self.assertIn("ClickGit-Windows-x64-Setup.exe", workflow)
+        self.assertIn("ClickGit-Windows-x64-Portable.zip", workflow)
+        self.assertNotIn("ClickGit-Windows-x64.zip", workflow)
         self.assertIn("ClickGit-macOS-arm64.zip", workflow)
         self.assertIn("ClickGit-macOS-x64.zip", workflow)
         self.assertIn(
-            "artifacts/package/ClickGit-Windows-x64.zip",
-            workflow,
+            (
+                "path: |\n"
+                "            artifacts/installer/"
+                "ClickGit-Windows-x64-Setup.exe\n"
+                "            artifacts/package/"
+                "ClickGit-Windows-x64-Portable.zip"
+            ),
+            normalized_workflow,
         )
         self.assertIn(
             "artifacts/package/${{ matrix.archive }}",
             workflow,
-        )
-        self.assertIn(
-            "artifacts/publish/windows-x64/ClickGit",
-            workflow.replace("\\", "/"),
         )
 
     def test_release_workflow_creates_windows_and_mac_releases(self) -> None:
@@ -917,6 +937,32 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("GH_REPO: ${{ github.repository }}", workflow)
         self.assertIn('VERSION="${{ inputs.version }}"', workflow)
         self.assertIn('VERSION="${VERSION%%-retry*}"', workflow)
+        self.assertIn(
+            (
+                'WINDOWS_SETUP="release-assets/windows-x64/'
+                'ClickGit-Windows-x64-Setup.exe"'
+            ),
+            workflow,
+        )
+        self.assertIn(
+            (
+                'WINDOWS_PORTABLE="release-assets/windows-x64/'
+                'ClickGit-Windows-x64-Portable.zip"'
+            ),
+            workflow,
+        )
+        self.assertIn(
+            (
+                'gh release upload "$WINDOWS_TAG" \\\n'
+                '            "$WINDOWS_SETUP" \\\n'
+                '            "$WINDOWS_PORTABLE" \\\n'
+                "            --clobber"
+            ),
+            workflow,
+        )
+        self.assertIn("安装版", workflow)
+        self.assertIn("便携版", workflow)
+        self.assertIn("备用", workflow)
 
 
 if __name__ == "__main__":
