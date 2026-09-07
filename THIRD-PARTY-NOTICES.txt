@@ -5,7 +5,7 @@ ClickGit project source code is licensed under the MIT License. That license
 does not replace, override, or extend to the third-party components listed
 below. Each component remains governed by its own license terms.
 
-1. Python 3.13
+1. Python 3.14
    Copyright (c) Python Software Foundation and contributors.
    License: Python Software Foundation License Version 2.
    Python and its standard library may include additional notices for
@@ -74,9 +74,11 @@ below. Each component remains governed by its own license terms.
    Copyright (c) PyInstaller Development Team and contributors.
    License: GPL-2.0-or-later with the PyInstaller exception that permits
    building and distributing programs under other licenses.
+   The complete upstream COPYING text and exception are distributed as:
+   - licenses/PyInstaller-6.21-COPYING.txt
 
 8. Git for Windows
-   Windows releases bundle Git for Windows 2.55.0.3.
+   Windows releases bundle Git for Windows 2.55.0.windows.3.
    License: Git itself is distributed under GPL-2.0-only. The Git for Windows
    distribution also contains supporting components governed by their own
    license terms and notices.
@@ -95,15 +97,19 @@ Distribution requirement
 
 Every final ClickGit release must retain and distribute the complete license
 files, copyright notices, exceptions, and third-party notices supplied with
-these components. This baseline does not prove that the required Qt and PySide6 license materials
-are present in the application bundles or release archives. Before the next
-release, the actual packaged modules and archives must be inspected, the
-required materials must be collected, and their inclusion must be verified.
-If that verification is incomplete, the release must be blocked.
+these components. Open-source distribution must retain the applicable LGPL
+or GPL license texts, Qt/PySide6/Shiboken6 notice and source offer, Python
+license, PyInstaller exception, and the notices retained inside PortableGit.
+
+The project-maintained distributable texts are stored under
+docs/licenses/distribution and are listed with SHA-256 digests in
+LICENSE-MANIFEST.json. Windows and macOS build scripts run
+scripts/verify_licenses.py before packaging and verify the copied package
+again. If a declared dependency version, required file, packaged file set, or
+SHA-256 digest differs, the release must be blocked.
 
 docs/licenses is established as the project's license-governance entry point.
-The actual inventory and complete license materials must be populated and
-maintained there before the next release. The directory's presence does not
-prove that the current release archives contain all required materials. This
-summary is not a substitute for the complete license materials and does not
-grant additional rights.
+Its hash-locked distribution bundle must be reviewed whenever dependencies or
+packaged modules change. Automated verification confirms the declared files
+and versions; it is not a substitute for legal review and does not grant
+additional rights.

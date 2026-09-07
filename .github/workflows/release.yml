@@ -9,7 +9,7 @@ on:
       version:
         description: Release version without the v prefix
         required: true
-        default: "0.1.0"
+        default: "0.2.0"
 
 permissions:
   contents: write
@@ -25,7 +25,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
 
       - name: Install build dependencies
@@ -52,6 +52,13 @@ jobs:
             $ReleaseVersion = $env:GITHUB_REF_NAME -replace "^release-v", ""
           }
           $ReleaseVersion = $ReleaseVersion -replace "-retry.*$", ""
+          $ProjectVersion = & python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])'
+          if ($ReleaseVersion -ne $ProjectVersion) {
+            throw (
+              "Release version '$ReleaseVersion' does not match project version " +
+              "'$ProjectVersion'."
+            )
+          }
           "RELEASE_VERSION=$ReleaseVersion" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -102,17 +109,40 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           architecture: ${{ matrix.python_arch }}
           cache: pip
 
       - name: Install build dependencies
         run: python3 -m pip install -r requirements-dev.txt
 
+      - name: Resolve release version
+        shell: bash
+        env:
+          RELEASE_INPUT: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            RELEASE_VERSION="$RELEASE_INPUT"
+          else
+            RELEASE_VERSION="${GITHUB_REF_NAME#release-v}"
+          fi
+          RELEASE_VERSION="${RELEASE_VERSION%%-retry*}"
+          PROJECT_VERSION="$(
+            python3 -c \
+              'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])'
+          )"
+          if [[ "$RELEASE_VERSION" != "$PROJECT_VERSION" ]]; then
+            echo "Release version '$RELEASE_VERSION' does not match project version '$PROJECT_VERSION'." >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=$RELEASE_VERSION" >>"$GITHUB_ENV"
+
       - name: Build, test and verify macOS package
         run: |
           chmod +x scripts/build-macos.sh scripts/verify-macos.sh
-          PYTHON_BIN=python3 scripts/build-macos.sh
+          PYTHON_BIN=python3 \
+            CLICKGIT_VERSION="$RELEASE_VERSION" \
+            scripts/build-macos.sh
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -131,6 +161,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -182,26 +215,138 @@ jobs:
             fi
           }
 
+          assert_release_target() {
+            local tag="$1"
+            local target_commitish
+
+            if gh api "repos/${GH_REPO}/git/ref/tags/${tag}" \
+              >/dev/null 2>&1; then
+              assert_release_tag_target "$tag"
+              return
+            fi
+            target_commitish="$(
+              gh release view "$tag" \
+                --json targetCommitish \
+                --jq '.targetCommitish'
+            )"
+            if [[ "$target_commitish" != "$GITHUB_SHA" ]]; then
+              echo "Release ${tag} targets ${target_commitish}, expected ${GITHUB_SHA}." >&2
+              return 1
+            fi
+          }
+
+          release_is_draft() {
+            local tag="$1"
+            gh release view "$tag" --json isDraft --jq '.isDraft'
+          }
+
+          ensure_release_asset() {
+            local tag="$1"
+            local asset="$2"
+            local asset_name
+            local existing_assets
+            local expected_digest
+            local actual_digest
+            local download_directory
+
+            asset_name="$(basename "$asset")"
+            existing_assets="$(
+              gh release view "$tag" --json assets --jq '.assets[].name'
+            )"
+            if grep -Fqx "$asset_name" <<<"$existing_assets"; then
+              download_directory="$(mktemp -d)"
+              if ! gh release download "$tag" \
+                --pattern "$asset_name" \
+                --dir "$download_directory"; then
+                rm -rf "$download_directory"
+                return 1
+              fi
+              expected_digest="$(sha256sum "$asset" | awk '{print $1}')"
+              actual_digest="$(
+                sha256sum "$download_directory/$asset_name" |
+                  awk '{print $1}'
+              )"
+              rm -rf "$download_directory"
+              if [[ "$actual_digest" != "$expected_digest" ]]; then
+                echo "Existing release asset checksum mismatch: ${tag}/${asset_name}" >&2
+                return 1
+              fi
+              echo "Release asset already matches: ${tag}/${asset_name}"
+              return 0
+            fi
+            gh release upload "$tag" "$asset"
+          }
+
+          write_sha_manifest() {
+            local manifest="$1"
+            shift
+            local asset
+            local checksum_name
+            local checksum
+
+            : >"$manifest"
+            for asset in "$@"; do
+              checksum_name="$(basename "$asset")"
+              checksum="$(sha256sum "$asset" | awk '{print $1}')"
+              printf '%s  %s\n' "$checksum" "$checksum_name" >>"$manifest"
+            done
+          }
+
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             VERSION="$RELEASE_INPUT"
           else
             VERSION="${GITHUB_REF_NAME#release-v}"
           fi
           VERSION="${VERSION%%-retry*}"
+          PROJECT_VERSION="$(
+            python3 -c \
+              'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])'
+          )"
+          if [[ "$VERSION" != "$PROJECT_VERSION" ]]; then
+            echo "Release version '$VERSION' does not match project version '$PROJECT_VERSION'." >&2
+            exit 1
+          fi
           WINDOWS_TAG="windows-v${VERSION}"
           MAC_TAG="mac-v${VERSION}"
           WINDOWS_SETUP="release-assets/windows-x64/ClickGit-Windows-x64-Setup.exe"
           WINDOWS_PORTABLE="release-assets/windows-x64/ClickGit-Windows-x64-Portable.zip"
           MAC_ARM_ASSET="release-assets/macos-arm64/ClickGit-macOS-arm64.zip"
           MAC_X64_ASSET="release-assets/macos-x64/ClickGit-macOS-x64.zip"
+          WINDOWS_SHA_MANIFEST="release-assets/windows-x64/SHA256SUMS.txt"
+          MAC_SHA_MANIFEST="release-assets/macos/SHA256SUMS.txt"
 
           test -f "$WINDOWS_SETUP"
           test -f "$WINDOWS_PORTABLE"
           test -f "$MAC_ARM_ASSET"
           test -f "$MAC_X64_ASSET"
+          python3 scripts/validate_macos_archive.py \
+            "$MAC_ARM_ASSET" \
+            --architecture arm64 \
+            --version "$VERSION"
+          python3 scripts/validate_macos_archive.py \
+            "$MAC_X64_ASSET" \
+            --architecture x86_64 \
+            --version "$VERSION"
+          WINDOWS_RELEASE_ASSETS=(
+            "$WINDOWS_SETUP"
+            "$WINDOWS_PORTABLE"
+          )
+          MAC_RELEASE_ASSETS=(
+            "$MAC_ARM_ASSET"
+            "$MAC_X64_ASSET"
+          )
+          mkdir -p "$(dirname "$MAC_SHA_MANIFEST")"
+          write_sha_manifest \
+            "$WINDOWS_SHA_MANIFEST" \
+            "${WINDOWS_RELEASE_ASSETS[@]}"
+          write_sha_manifest \
+            "$MAC_SHA_MANIFEST" \
+            "${MAC_RELEASE_ASSETS[@]}"
+          test -f "$WINDOWS_SHA_MANIFEST"
+          test -f "$MAC_SHA_MANIFEST"
 
           if gh release view "$WINDOWS_TAG" >/dev/null 2>&1; then
-            assert_release_tag_target "$WINDOWS_TAG"
+            assert_release_target "$WINDOWS_TAG"
           else
             if gh api "repos/${GH_REPO}/git/ref/tags/${WINDOWS_TAG}" >/dev/null 2>&1; then
               assert_release_tag_target "$WINDOWS_TAG"
@@ -213,7 +358,7 @@ jobs:
               --notes "Windows x64 安装版优先使用；便携版作为免安装备用。"
           fi
           if gh release view "$MAC_TAG" >/dev/null 2>&1; then
-            assert_release_tag_target "$MAC_TAG"
+            assert_release_target "$MAC_TAG"
           else
             if gh api "repos/${GH_REPO}/git/ref/tags/${MAC_TAG}" >/dev/null 2>&1; then
               assert_release_tag_target "$MAC_TAG"
@@ -225,14 +370,20 @@ jobs:
               --notes "macOS 版本包含 Apple Silicon 与 Intel 两个安装包。"
           fi
 
-          gh release upload "$WINDOWS_TAG" \
-            "$WINDOWS_SETUP" \
-            "$WINDOWS_PORTABLE" \
-            --clobber
-          gh release upload "$MAC_TAG" \
-            "$MAC_ARM_ASSET" \
-            "$MAC_X64_ASSET" \
-            --clobber
+          for asset in \
+            "${WINDOWS_RELEASE_ASSETS[@]}" \
+            "$WINDOWS_SHA_MANIFEST"; do
+            ensure_release_asset "$WINDOWS_TAG" "$asset"
+          done
+          for asset in \
+            "${MAC_RELEASE_ASSETS[@]}" \
+            "$MAC_SHA_MANIFEST"; do
+            ensure_release_asset "$MAC_TAG" "$asset"
+          done
 
-          gh release edit "$WINDOWS_TAG" --draft=false
-          gh release edit "$MAC_TAG" --draft=false
+          if [[ "$(release_is_draft "$WINDOWS_TAG")" == "true" ]]; then
+            gh release edit "$WINDOWS_TAG" --draft=false
+          fi
+          if [[ "$(release_is_draft "$MAC_TAG")" == "true" ]]; then
+            gh release edit "$MAC_TAG" --draft=false
+          fi

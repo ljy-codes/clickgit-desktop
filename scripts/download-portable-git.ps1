@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $Version = "2.55.0.3"
+$ExpectedGitVersion = "2.55.0.windows.3"
 $ReleaseTag = "v2.55.0.windows.3"
 $ArchiveName = "PortableGit-$Version-64-bit.7z.exe"
 $ExpectedSha256 = "ab00566336b5472120f9a52d34f2e79c5406535792acb0548001ffd0bd090e5d"
@@ -13,6 +14,96 @@ $ArchivePath = Join-Path $DownloadRoot $ArchiveName
 $TemporaryArchive = "$ArchivePath.part"
 $GitRoot = Join-Path $RuntimeRoot "git"
 $GitExecutable = Join-Path $GitRoot "cmd\git.exe"
+
+function Get-NormalizedPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $FullPath = [IO.Path]::GetFullPath($Path)
+    $PathRoot = [IO.Path]::GetPathRoot($FullPath)
+    if ($FullPath.Equals(
+        $PathRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        return $PathRoot
+    }
+    return $FullPath.TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+    )
+}
+
+function Assert-NoReparseTree {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TrustedRoot,
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $NormalizedRoot = Get-NormalizedPath $TrustedRoot
+    $NormalizedPath = Get-NormalizedPath $Path
+    $RequiredPrefix = $NormalizedRoot +
+        [IO.Path]::DirectorySeparatorChar
+    if (-not $NormalizedPath.StartsWith(
+        $RequiredPrefix,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Unsafe runtime path: $NormalizedPath"
+    }
+    $CurrentPath = $NormalizedRoot
+    $RelativePath = $NormalizedPath.Substring(
+        $NormalizedRoot.Length
+    ).TrimStart(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+    )
+    foreach ($PathPart in $RelativePath.Split(
+        [char[]]@(
+            [IO.Path]::DirectorySeparatorChar,
+            [IO.Path]::AltDirectorySeparatorChar
+        ),
+        [StringSplitOptions]::RemoveEmptyEntries
+    )) {
+        $CurrentPath = Join-Path $CurrentPath $PathPart
+        if (-not (Test-Path -LiteralPath $CurrentPath)) {
+            return $NormalizedPath
+        }
+        $CurrentItem = Get-Item -LiteralPath $CurrentPath -Force
+        if (
+            ($CurrentItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0
+        ) {
+            throw "Reparse point is not allowed: $CurrentPath"
+        }
+    }
+    if (Test-Path -LiteralPath $NormalizedPath -PathType Container) {
+        $PendingPaths = New-Object "Collections.Generic.Queue[string]"
+        $PendingPaths.Enqueue($NormalizedPath)
+        while ($PendingPaths.Count -gt 0) {
+            $CurrentDirectory = $PendingPaths.Dequeue()
+            foreach ($ChildItem in Get-ChildItem `
+                -LiteralPath $CurrentDirectory `
+                -Force) {
+                if (
+                    ($ChildItem.Attributes -band
+                        [IO.FileAttributes]::ReparsePoint) -ne 0
+                ) {
+                    throw (
+                        "Reparse point is not allowed: " +
+                        $ChildItem.FullName
+                    )
+                }
+                if ($ChildItem.PSIsContainer) {
+                    $PendingPaths.Enqueue($ChildItem.FullName)
+                }
+            }
+        }
+    }
+    return $NormalizedPath
+}
 
 New-Item -ItemType Directory -Force -Path $DownloadRoot | Out-Null
 
@@ -46,11 +137,9 @@ if ($ActualSha256 -ne $ExpectedSha256) {
 }
 
 if (Test-Path -LiteralPath $GitRoot) {
-    $ResolvedRuntime = (Resolve-Path -LiteralPath $RuntimeRoot).Path
-    $ResolvedGit = (Resolve-Path -LiteralPath $GitRoot).Path
-    if (-not $ResolvedGit.StartsWith($ResolvedRuntime, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to replace Git runtime outside the project runtime directory."
-    }
+    Assert-NoReparseTree `
+        -TrustedRoot $ProjectRoot `
+        -Path $GitRoot | Out-Null
     Remove-Item -LiteralPath $GitRoot -Recurse -Force
 }
 
@@ -61,4 +150,10 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $GitExecutable)) {
 }
 
 $VersionOutput = & $GitExecutable --version
+if ($VersionOutput -ne "git version $ExpectedGitVersion") {
+    throw (
+        "PortableGit runtime version mismatch. Expected " +
+        "'git version $ExpectedGitVersion', got '$VersionOutput'."
+    )
+}
 Write-Host "PortableGit ready: $VersionOutput"

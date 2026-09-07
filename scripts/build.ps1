@@ -14,9 +14,12 @@ $GitRuntime = Join-Path $ProjectRoot "runtime\git"
 $GitExecutable = Join-Path $GitRuntime "cmd\git.exe"
 $LicenseSource = Join-Path $ProjectRoot "LICENSE"
 $NoticesSource = Join-Path $ProjectRoot "THIRD-PARTY-NOTICES.txt"
+$LicenseBundleSource = Join-Path $ProjectRoot "docs\licenses\distribution"
+$LicenseVerifier = Join-Path $ProjectRoot "scripts\verify_licenses.py"
 $PackageRuntime = Join-Path $PackageRoot "runtime\git"
 $PackageLicense = Join-Path $PackageRoot "LICENSE"
 $PackageNotices = Join-Path $PackageRoot "THIRD-PARTY-NOTICES.txt"
+$PackageLicenses = Join-Path $PackageRoot "licenses"
 $OriginalPathExists = Test-Path -LiteralPath Env:PATH
 $OriginalPythonPathExists = Test-Path -LiteralPath Env:PYTHONPATH
 $OriginalQtPlatformExists = Test-Path -LiteralPath Env:QT_QPA_PLATFORM
@@ -35,6 +38,26 @@ else {
 }
 $LocationPushed = $false
 
+function Get-NormalizedPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $FullPath = [IO.Path]::GetFullPath($Path)
+    $PathRoot = [IO.Path]::GetPathRoot($FullPath)
+    if ($FullPath.Equals(
+        $PathRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        return $PathRoot
+    }
+    return $FullPath.TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+    )
+}
+
 function Assert-ChildPath {
     param(
         [Parameter(Mandatory)]
@@ -43,14 +66,8 @@ function Assert-ChildPath {
         [string]$ChildPath
     )
 
-    $NormalizedParent = [IO.Path]::GetFullPath($ParentPath).TrimEnd(
-        [IO.Path]::DirectorySeparatorChar,
-        [IO.Path]::AltDirectorySeparatorChar
-    )
-    $NormalizedChild = [IO.Path]::GetFullPath($ChildPath).TrimEnd(
-        [IO.Path]::DirectorySeparatorChar,
-        [IO.Path]::AltDirectorySeparatorChar
-    )
+    $NormalizedParent = Get-NormalizedPath $ParentPath
+    $NormalizedChild = Get-NormalizedPath $ChildPath
     $RequiredPrefix = $NormalizedParent + [IO.Path]::DirectorySeparatorChar
     if (-not $NormalizedChild.StartsWith(
         $RequiredPrefix,
@@ -61,7 +78,119 @@ function Assert-ChildPath {
     return $NormalizedChild
 }
 
+function Assert-NoReparsePoint {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TrustedRoot,
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $NormalizedRoot = Get-NormalizedPath $TrustedRoot
+    $NormalizedPath = Get-NormalizedPath $Path
+    $RequiredPrefix = $NormalizedRoot
+    if (-not $RequiredPrefix.EndsWith(
+        [IO.Path]::DirectorySeparatorChar.ToString()
+    )) {
+        $RequiredPrefix += [IO.Path]::DirectorySeparatorChar
+    }
+    $IsTrustedRoot = $NormalizedPath.Equals(
+        $NormalizedRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )
+    if (
+        -not $IsTrustedRoot -and
+        -not $NormalizedPath.StartsWith(
+            $RequiredPrefix,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    ) {
+        throw "Unsafe reparse-point check: $NormalizedPath"
+    }
+
+    $CurrentPath = $NormalizedRoot
+    $RelativePath = if ($IsTrustedRoot) {
+        ""
+    }
+    else {
+        $NormalizedPath.Substring($NormalizedRoot.Length).TrimStart(
+            [IO.Path]::DirectorySeparatorChar,
+            [IO.Path]::AltDirectorySeparatorChar
+        )
+    }
+    $PathParts = if ($RelativePath) {
+        $RelativePath.Split(
+            [char[]]@(
+                [IO.Path]::DirectorySeparatorChar,
+                [IO.Path]::AltDirectorySeparatorChar
+            ),
+            [StringSplitOptions]::RemoveEmptyEntries
+        )
+    }
+    else {
+        @()
+    }
+    foreach ($PathPart in @("") + $PathParts) {
+        if ($PathPart) {
+            $CurrentPath = Join-Path $CurrentPath $PathPart
+        }
+        if (-not (Test-Path -LiteralPath $CurrentPath)) {
+            break
+        }
+        $CurrentItem = Get-Item -LiteralPath $CurrentPath -Force
+        if (
+            ($CurrentItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0
+        ) {
+            throw "Reparse point is not allowed: $CurrentPath"
+        }
+    }
+    return $NormalizedPath
+}
+
+function Assert-NoReparseTree {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TrustedRoot,
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $ValidatedPath = Assert-NoReparsePoint `
+        -TrustedRoot $TrustedRoot `
+        -Path $Path
+    if (-not (Test-Path -LiteralPath $ValidatedPath -PathType Container)) {
+        return $ValidatedPath
+    }
+    $PendingPaths = New-Object "Collections.Generic.Queue[string]"
+    $PendingPaths.Enqueue($ValidatedPath)
+    while ($PendingPaths.Count -gt 0) {
+        $CurrentDirectory = $PendingPaths.Dequeue()
+        foreach ($ChildItem in Get-ChildItem `
+            -LiteralPath $CurrentDirectory `
+            -Force) {
+            if (
+                ($ChildItem.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0
+            ) {
+                throw "Reparse point is not allowed: $($ChildItem.FullName)"
+            }
+            if ($ChildItem.PSIsContainer) {
+                $PendingPaths.Enqueue($ChildItem.FullName)
+            }
+        }
+    }
+    return $ValidatedPath
+}
+
 try {
+    $ProjectVolumeRoot = [IO.Path]::GetPathRoot($ProjectRoot)
+    Assert-NoReparsePoint `
+        -TrustedRoot $ProjectVolumeRoot `
+        -Path $ProjectRoot | Out-Null
+    Assert-NoReparsePoint `
+        -TrustedRoot $ProjectRoot `
+        -Path $ArtifactsRoot | Out-Null
     $ValidatedBuildRoot = Assert-ChildPath `
         -ParentPath $ArtifactsRoot `
         -ChildPath $BuildRoot
@@ -71,6 +200,15 @@ try {
     $ValidatedPackageRoot = Assert-ChildPath `
         -ParentPath $ArtifactsRoot `
         -ChildPath $PackageRoot
+    foreach ($ProtectedArtifactPath in @(
+        $ValidatedBuildRoot,
+        $ValidatedPublishRoot,
+        $ValidatedPackageRoot
+    )) {
+        Assert-NoReparsePoint `
+            -TrustedRoot $ArtifactsRoot `
+            -Path $ProtectedArtifactPath | Out-Null
+    }
     Assert-ChildPath `
         -ParentPath $ArtifactsRoot `
         -ChildPath $PackageRuntime | Out-Null
@@ -80,12 +218,29 @@ try {
     Assert-ChildPath `
         -ParentPath $ArtifactsRoot `
         -ChildPath $PackageNotices | Out-Null
+    Assert-ChildPath `
+        -ParentPath $ArtifactsRoot `
+        -ChildPath $PackageLicenses | Out-Null
 
     if (-not (Test-Path -LiteralPath $VenvPython)) {
         & (Join-Path $PSScriptRoot "bootstrap.ps1")
     }
-    if (-not (Test-Path -LiteralPath $GitExecutable)) {
+    $ExpectedGitVersion = "git version 2.55.0.windows.3"
+    $ActualGitVersion = if (Test-Path -LiteralPath $GitExecutable) {
+        (& $GitExecutable --version)
+    }
+    else {
+        ""
+    }
+    if ($ActualGitVersion -ne $ExpectedGitVersion) {
         & (Join-Path $PSScriptRoot "download-portable-git.ps1")
+    }
+    & $VenvPython $LicenseVerifier `
+        --project-root $ProjectRoot `
+        --python-executable $VenvPython `
+        --git-executable $GitExecutable
+    if ($LASTEXITCODE -ne 0) {
+        throw "Third-party license verification failed."
     }
 
     Push-Location $ProjectRoot
@@ -113,6 +268,9 @@ try {
         $ValidatedPackageRoot
     )) {
         if (Test-Path -LiteralPath $CleanTarget) {
+            Assert-NoReparseTree `
+                -TrustedRoot $ArtifactsRoot `
+                -Path $CleanTarget | Out-Null
             Remove-Item -LiteralPath $CleanTarget -Recurse -Force
         }
     }
@@ -131,7 +289,9 @@ try {
         $GitRuntime,
         $GitExecutable,
         $LicenseSource,
-        $NoticesSource
+        $NoticesSource,
+        $LicenseVerifier,
+        (Join-Path $LicenseBundleSource "LICENSE-MANIFEST.json")
     )) {
         if (-not (Test-Path -LiteralPath $RequiredSource)) {
             throw "Required package source was not found: $RequiredSource"
@@ -143,6 +303,12 @@ try {
 
     New-Item -ItemType Directory -Force -Path (Split-Path $PackageRuntime) |
         Out-Null
+    Assert-NoReparseTree `
+        -TrustedRoot $ProjectRoot `
+        -Path $GitRuntime | Out-Null
+    Assert-NoReparseTree `
+        -TrustedRoot $ProjectRoot `
+        -Path $LicenseBundleSource | Out-Null
     Copy-Item -LiteralPath $GitRuntime `
         -Destination $PackageRuntime `
         -Recurse `
@@ -153,6 +319,16 @@ try {
     Copy-Item -LiteralPath $NoticesSource `
         -Destination $PackageNotices `
         -Force
+    Copy-Item -LiteralPath $LicenseBundleSource `
+        -Destination $PackageLicenses `
+        -Recurse `
+        -Force
+    & $VenvPython $LicenseVerifier `
+        --project-root $ProjectRoot `
+        --package-root $PackageRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Packaged third-party license verification failed."
+    }
 }
 finally {
     if ($OriginalPathExists) {

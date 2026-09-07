@@ -532,3 +532,42 @@ git log -10 --oneline
 
 Expected: no unintended tracked changes, no whitespace errors, and local
 `main` ahead of `origin/main` by the new implementation commits.
+
+### Task 8: Final Review Remediation
+
+**Files:**
+- Create: `scripts/verify_licenses.py`
+- Create: `scripts/validate_macos_archive.py`
+- Create: `docs/licenses/distribution/*`
+- Modify: `scripts/build.ps1`
+- Modify: `scripts/package.ps1`
+- Modify: `scripts/publish.ps1`
+- Modify: `scripts/build-macos.sh`
+- Modify: `scripts/download-portable-git.ps1`
+- Modify: `.github/workflows/release.yml`
+- Modify: `THIRD-PARTY-NOTICES.txt`
+- Modify: `tests/test_release_configuration.py`
+- Modify: outer `进度.md`
+
+- [x] **Step 1: Add failing regression tests**
+
+Cover license-material verification, dependency-version alignment, immutable
+release assets, release checksum publication, valid macOS ZIP/Mach-O
+architecture checks, and reparse-point-safe cleanup.
+
+- [x] **Step 2: Implement license and archive verification**
+
+Hash-lock the distributable license bundle, validate actual build dependency
+versions, include the bundle in Windows and macOS packages, and reject corrupt
+or wrong-architecture macOS archives.
+
+- [x] **Step 3: Harden release publication and cleanup**
+
+Never overwrite an existing published release or same-name attachment, upload
+`SHA256SUMS.txt`, and reject reparse points before recursive cleanup.
+
+- [x] **Step 4: Rebuild and verify final delivery**
+
+Run focused tests, the full suite, Windows package smoke, installer lifecycle,
+delivery publication, checksums, and repository checks. Update outer progress
+only after all evidence is fresh.

@@ -1,6 +1,6 @@
 param(
     [ValidatePattern("^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")]
-    [string]$Version = "0.1.0",
+    [string]$Version = "0.2.0",
     [switch]$SkipPackage,
     [string]$ProjectRoot = (Join-Path $PSScriptRoot ".."),
     [string]$OuterRoot
@@ -287,6 +287,45 @@ function Get-Sha256Digest {
     }
 }
 
+function Assert-WindowsBuildManifest {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ManifestPath,
+        [Parameter(Mandatory)]
+        [string]$ExpectedVersion,
+        [Parameter(Mandatory)]
+        [hashtable]$ArtifactPaths
+    )
+
+    Assert-RequiredFile $ManifestPath
+    try {
+        $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 |
+            ConvertFrom-Json
+    }
+    catch {
+        throw "Windows build manifest is invalid JSON: $ManifestPath"
+    }
+    if ($Manifest.schema_version -ne 1) {
+        throw "Unsupported Windows build manifest schema."
+    }
+    if ($Manifest.version -ne $ExpectedVersion) {
+        throw (
+            "Windows build version mismatch: expected '$ExpectedVersion', " +
+            "found '$($Manifest.version)'."
+        )
+    }
+    foreach ($ArtifactName in $ArtifactPaths.Keys) {
+        $ExpectedDigest = $Manifest.artifacts.$ArtifactName
+        if ($ExpectedDigest -notmatch "^[0-9a-fA-F]{64}$") {
+            throw "Windows build manifest is missing $ArtifactName."
+        }
+        $ActualDigest = Get-Sha256Digest -Path $ArtifactPaths[$ArtifactName]
+        if ($ActualDigest -ne $ExpectedDigest.ToLowerInvariant()) {
+            throw "Windows build manifest checksum mismatch: $ArtifactName"
+        }
+    }
+}
+
 function Write-Sha256Manifest {
     param(
         [Parameter(Mandatory)]
@@ -459,19 +498,31 @@ $PackageSourceRoot = Join-Path $ProjectRoot "artifacts\package"
 $PortableSource = Join-Path (
     $PackageSourceRoot
 ) "ClickGit-Windows-x64-Portable.zip"
+$WindowsBuildManifest = Join-Path (
+    $PackageSourceRoot
+) "ClickGit-Windows-x64-MANIFEST.json"
 $InstallGuideSource = Join-Path (
     Join-Path $ProjectRoot "docs\user"
 ) $InstallGuideName
 $ProductIntroSource = Join-Path (
     Join-Path $ProjectRoot "docs\user"
 ) $ProductIntroName
+$MacArchiveValidator = Join-Path (
+    Join-Path $ProjectRoot "scripts"
+) "validate_macos_archive.py"
+$ValidationPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $ValidationPython -PathType Leaf)) {
+    $ValidationPython = Get-Command "python" -ErrorAction Stop |
+        Select-Object -ExpandProperty Source -First 1
+}
 
 $InstallerName = "ClickGit-Windows-x64-Setup.exe"
 $PortableName = "ClickGit-Windows-x64-Portable.zip"
-$MacNames = @(
-    "ClickGit-macOS-arm64.zip",
-    "ClickGit-macOS-x64.zip"
-)
+$MacArchitectures = [ordered]@{
+    "ClickGit-macOS-arm64.zip" = "arm64"
+    "ClickGit-macOS-x64.zip" = "x86_64"
+}
+$MacNames = @($MacArchitectures.Keys)
 $OuterFileSources = [ordered]@{
     $InstallerCopyName = $InstallerSource
     $InstallGuideName = $InstallGuideSource
@@ -504,14 +555,23 @@ try {
     foreach ($RequiredFile in @(
         $InstallerSource,
         $PortableSource,
+        $WindowsBuildManifest,
         $InstallGuideSource,
-        $ProductIntroSource
+        $ProductIntroSource,
+        $MacArchiveValidator
     )) {
         Assert-RequiredFile $RequiredFile
         Assert-NoReparsePoint `
             -TrustedRoot $ProjectRoot `
             -Path $RequiredFile | Out-Null
     }
+    Assert-WindowsBuildManifest `
+        -ManifestPath $WindowsBuildManifest `
+        -ExpectedVersion $Version `
+        -ArtifactPaths @{
+            $InstallerName = $InstallerSource
+            $PortableName = $PortableSource
+        }
 
     if (Test-Path -LiteralPath $StagingRoot) {
         Remove-CheckedItem `
@@ -537,23 +597,17 @@ try {
         -Destination (Join-Path $StagedDelivery $PortableName)
     foreach ($MacName in $MacNames) {
         $MacPackageSource = Join-Path $PackageSourceRoot $MacName
-        $MacSource = $null
-        $MacTrustedRoot = $null
         if (Test-Path -LiteralPath $MacPackageSource -PathType Leaf) {
-            $MacSource = $MacPackageSource
-            $MacTrustedRoot = $ProjectRoot
-        }
-        else {
-            $ExistingMacSource = Join-Path $DeliveryRoot $MacName
-            if (Test-Path -LiteralPath $ExistingMacSource -PathType Leaf) {
-                $MacSource = $ExistingMacSource
-                $MacTrustedRoot = $OuterRoot
+            & $ValidationPython $MacArchiveValidator `
+                $MacPackageSource `
+                --architecture $MacArchitectures[$MacName] `
+                --version $Version
+            if ($LASTEXITCODE -ne 0) {
+                throw "Invalid macOS package: $MacPackageSource"
             }
-        }
-        if ($MacSource) {
             Copy-CheckedFile `
-                -SourceTrustedRoot $MacTrustedRoot `
-                -Source $MacSource `
+                -SourceTrustedRoot $ProjectRoot `
+                -Source $MacPackageSource `
                 -DestinationTrustedRoot $StagingRoot `
                 -Destination (Join-Path $StagedDelivery $MacName)
         }

@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import os
+import plistlib
 import shutil
 import subprocess
+import sys
 import tempfile
+import tomllib
 import unittest
 import zipfile
 from pathlib import Path
@@ -121,9 +125,21 @@ class ReleaseConfigurationTests(unittest.TestCase):
             package_script,
         )
         self.assertIn("scripts\\verify-package.ps1", package_script)
+        self.assertIn("verify_licenses.py", package_script)
+        self.assertIn(
+            "ClickGit-Windows-x64-MANIFEST.json",
+            package_script,
+        )
+        self.assertIn(
+            "ClickGit-Windows-x64-MANIFEST.json",
+            publish_script,
+        )
+        self.assertIn("Assert-WindowsBuildManifest", publish_script)
+        self.assertNotIn("ExistingMacSource", publish_script)
         self.assertIn("SHA256SUMS.txt", publish_script)
         self.assertIn("ClickGit-安装包.exe", publish_script)
         self.assertIn("Assert-ChildPath", publish_script)
+        self.assertIn("Assert-NoReparseTree", package_script)
 
     def test_installer_uses_complete_simplified_chinese_translation(
         self,
@@ -198,25 +214,39 @@ class ReleaseConfigurationTests(unittest.TestCase):
             delivery_root.mkdir(parents=True)
             publish_script = scripts_root / "publish.ps1"
             shutil.copy2(source_publish_script, publish_script)
+            shutil.copy2(
+                PROJECT_ROOT / "scripts" / "validate_macos_archive.py",
+                scripts_root / "validate_macos_archive.py",
+            )
 
             installer_name = "ClickGit-Windows-x64-Setup.exe"
             installer_content = b"fake-installer"
             (installer_root / installer_name).write_bytes(installer_content)
             existing_macos_name = "ClickGit-macOS-x64.zip"
-            existing_macos_content = b"existing-macos-x64"
-            (delivery_root / existing_macos_name).write_bytes(
-                existing_macos_content
+            existing_macos_path = delivery_root / existing_macos_name
+            self._write_fake_macos_archive(
+                existing_macos_path,
+                "x86_64",
+                version="0.0.9",
             )
             package_files = {
                 "ClickGit-Windows-x64-Portable.zip": b"fake-portable",
-                "ClickGit-macOS-arm64.zip": b"fake-macos-arm64",
             }
             for file_name, content in package_files.items():
                 (package_root / file_name).write_bytes(content)
+            macos_arm_path = package_root / "ClickGit-macOS-arm64.zip"
+            self._write_fake_macos_archive(macos_arm_path, "arm64")
+            package_files[macos_arm_path.name] = macos_arm_path.read_bytes()
+            macos_x64_path = package_root / "ClickGit-macOS-x64.zip"
+            self._write_fake_macos_archive(macos_x64_path, "x86_64")
+            package_files[macos_x64_path.name] = macos_x64_path.read_bytes()
+            self._write_windows_build_manifest(
+                project_root,
+                version="0.1.0",
+            )
             fixture_files = {
                 installer_name: installer_content,
                 **package_files,
-                existing_macos_name: existing_macos_content,
             }
 
             install_guide = "<html><body>安装说明</body></html>"
@@ -305,6 +335,65 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 product_intro,
             )
             self._assert_sha256_manifest_matches(delivery_root)
+
+            delivery_snapshot = {
+                path.name: path.read_bytes()
+                for path in delivery_root.iterdir()
+            }
+            build_manifest_path = (
+                package_root / "ClickGit-Windows-x64-MANIFEST.json"
+            )
+            invalid_manifest = json.loads(
+                build_manifest_path.read_text(encoding="utf-8")
+            )
+            invalid_manifest["version"] = "9.9.9"
+            build_manifest_path.write_text(
+                json.dumps(invalid_manifest),
+                encoding="utf-8",
+            )
+            stale_version_result = self._run_publish_script(
+                powershell,
+                publish_script,
+                project_root,
+                outer_root,
+            )
+            self.assertNotEqual(stale_version_result.returncode, 0)
+            self.assertIn(
+                "Windows build version mismatch",
+                stale_version_result.stderr,
+            )
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in delivery_root.iterdir()
+                },
+                delivery_snapshot,
+            )
+            self._write_windows_build_manifest(
+                project_root,
+                version="0.1.0",
+            )
+
+            macos_arm_path.write_bytes(b"not-a-zip")
+            invalid_macos_result = self._run_publish_script(
+                powershell,
+                publish_script,
+                project_root,
+                outer_root,
+            )
+            self.assertNotEqual(invalid_macos_result.returncode, 0)
+            self.assertIn(
+                "Invalid macOS package",
+                invalid_macos_result.stderr,
+            )
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in delivery_root.iterdir()
+                },
+                delivery_snapshot,
+            )
+            self._write_fake_macos_archive(macos_arm_path, "arm64")
 
             mismatched_outer = temporary_root / "不匹配外层"
             mismatched_outer.mkdir()
@@ -477,6 +566,25 @@ class ReleaseConfigurationTests(unittest.TestCase):
             self.assertTrue(installer.is_file())
             self.assertGreater(installer.stat().st_size, 0)
             self.assertTrue(portable.is_file())
+            build_manifest = (
+                project_root
+                / "artifacts"
+                / "package"
+                / "ClickGit-Windows-x64-MANIFEST.json"
+            )
+            self.assertTrue(build_manifest.is_file())
+            build_metadata = json.loads(
+                build_manifest.read_text(encoding="utf-8-sig")
+            )
+            self.assertEqual(build_metadata["version"], "0.1.0")
+            self.assertEqual(
+                build_metadata["artifacts"][installer.name],
+                hashlib.sha256(installer.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                build_metadata["artifacts"][portable.name],
+                hashlib.sha256(portable.read_bytes()).hexdigest(),
+            )
 
             with zipfile.ZipFile(portable) as archive:
                 archive_files = {
@@ -489,6 +597,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 "ClickGit/runtime/git/cmd/git.exe",
                 "ClickGit/LICENSE",
                 "ClickGit/THIRD-PARTY-NOTICES.txt",
+                "ClickGit/licenses/LICENSE-MANIFEST.json",
+                "ClickGit/licenses/GNU-LGPL-3.0.txt",
+                (
+                    "ClickGit/licenses/"
+                    "Inno-Setup-Chinese-Translation-LICENSE.txt"
+                ),
+                "ClickGit/licenses/Python-3.14-LICENSE.txt",
             }
             self.assertTrue(
                 expected_archive_files.issubset(archive_files),
@@ -556,8 +671,69 @@ class ReleaseConfigurationTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertTrue(marker.is_file())
             self.assertFalse(iscc_marker.exists())
-            self.assertFalse(stale_installer.exists())
-            self.assertFalse(stale_portable.exists())
+            self.assertEqual(
+                stale_installer.read_bytes(),
+                b"stale-installer",
+            )
+            self.assertEqual(
+                stale_portable.read_bytes(),
+                b"stale-portable",
+            )
+
+    @unittest.skipUnless(os.name == "nt", "Windows packaging only")
+    def test_windows_package_rejects_staging_parent_junction(
+        self,
+    ) -> None:
+        source_package_script = PROJECT_ROOT / "scripts" / "package.ps1"
+        source_installer = PROJECT_ROOT / "installer" / "ClickGit.iss"
+        powershell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+        self.assertIsNotNone(powershell)
+        iscc_path = _find_iscc()
+        if iscc_path is None:
+            self.skipTest("Inno Setup ISCC.exe is not installed.")
+
+        with tempfile.TemporaryDirectory(
+            prefix="clickgit-package-junction-"
+        ) as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            project_root = temporary_root / "开发空间"
+            package_script, verify_script, marker = (
+                self._create_package_fixture(
+                    project_root,
+                    source_package_script,
+                    source_installer,
+                    verify_exit_code=0,
+                )
+            )
+            outside_staging = temporary_root / "outside-staging"
+            outside_staging.mkdir()
+            staging_parent = project_root / "artifacts" / "staging"
+            junction_result = self._create_directory_junction(
+                staging_parent,
+                outside_staging,
+            )
+            if junction_result is None:
+                self.skipTest("Directory junction creation is unavailable.")
+            try:
+                result = self._run_package_script(
+                    powershell,
+                    package_script,
+                    project_root,
+                    verify_script,
+                    iscc_path,
+                    marker,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Reparse point is not allowed", result.stderr)
+                self.assertEqual(list(outside_staging.iterdir()), [])
+            finally:
+                is_junction = getattr(
+                    os.path,
+                    "isjunction",
+                    lambda path: False,
+                )
+                if is_junction(staging_parent):
+                    os.rmdir(staging_parent)
 
     def _create_package_fixture(
         self,
@@ -583,6 +759,10 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
         package_script = scripts_root / "package.ps1"
         shutil.copy2(source_package_script, package_script)
+        shutil.copy2(
+            PROJECT_ROOT / "scripts" / "verify_licenses.py",
+            scripts_root / "verify_licenses.py",
+        )
         shutil.copy2(source_installer, installer_root / "ClickGit.iss")
         shutil.copytree(
             source_installer.parent / "Languages",
@@ -599,6 +779,30 @@ class ReleaseConfigurationTests(unittest.TestCase):
             "Third-party notices",
             encoding="utf-8",
         )
+        shutil.copytree(
+            PROJECT_ROOT / "docs" / "licenses" / "distribution",
+            application_root / "licenses",
+        )
+        shutil.copytree(
+            PROJECT_ROOT / "docs" / "licenses" / "distribution",
+            project_root / "docs" / "licenses" / "distribution",
+        )
+        license_manifest = json.loads(
+            (
+                PROJECT_ROOT
+                / "docs"
+                / "licenses"
+                / "distribution"
+                / "LICENSE-MANIFEST.json"
+            ).read_text(encoding="utf-8")
+        )
+        for relative_path in license_manifest["portable_git"][
+            "required_files"
+        ]:
+            source_path = PROJECT_ROOT / relative_path
+            destination_path = application_root / relative_path
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, destination_path)
 
         marker = project_root / "verify.marker"
         verify_script = scripts_root / "fake-verify.ps1"
@@ -697,6 +901,48 @@ class ReleaseConfigurationTests(unittest.TestCase):
             check=False,
         )
 
+    def _write_windows_build_manifest(
+        self,
+        project_root: Path,
+        *,
+        version: str,
+    ) -> None:
+        installer = (
+            project_root
+            / "artifacts"
+            / "installer"
+            / "ClickGit-Windows-x64-Setup.exe"
+        )
+        portable = (
+            project_root
+            / "artifacts"
+            / "package"
+            / "ClickGit-Windows-x64-Portable.zip"
+        )
+        manifest_path = (
+            project_root
+            / "artifacts"
+            / "package"
+            / "ClickGit-Windows-x64-MANIFEST.json"
+        )
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "version": version,
+                    "artifacts": {
+                        installer.name: hashlib.sha256(
+                            installer.read_bytes()
+                        ).hexdigest(),
+                        portable.name: hashlib.sha256(
+                            portable.read_bytes()
+                        ).hexdigest(),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def _create_directory_junction(
         self,
         junction_path: Path,
@@ -725,6 +971,45 @@ class ReleaseConfigurationTests(unittest.TestCase):
         if result.returncode != 0:
             return None
         return result
+
+    def _write_fake_macos_archive(
+        self,
+        archive_path: Path,
+        architecture: str,
+        *,
+        version: str = "0.1.0",
+        executable_mode: int = 0o100755,
+        executable_size: int = 8192,
+    ) -> None:
+        cpu_types = {
+            "arm64": 0x0100000C,
+            "x86_64": 0x01000007,
+        }
+        executable = (
+            bytes.fromhex("cffaedfe")
+            + cpu_types[architecture].to_bytes(4, "little")
+            + b"\x00" * (executable_size - 8)
+        )
+        with zipfile.ZipFile(
+            archive_path,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as archive:
+            executable_info = zipfile.ZipInfo(
+                "ClickGit.app/Contents/MacOS/ClickGit"
+            )
+            executable_info.create_system = 3
+            executable_info.external_attr = executable_mode << 16
+            archive.writestr(executable_info, executable)
+            archive.writestr(
+                "ClickGit.app/Contents/Info.plist",
+                plistlib.dumps(
+                    {
+                        "CFBundleShortVersionString": version,
+                        "CFBundleVersion": version,
+                    }
+                ),
+            )
 
     def _assert_sha256_manifest_matches(self, delivery_root: Path) -> None:
         manifest_path = delivery_root / "SHA256SUMS.txt"
@@ -850,6 +1135,9 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("$OriginalPath = $env:PATH", build_script)
         self.assertIn("codex-runtimes", build_script)
         self.assertIn("$env:PATH = $OriginalPath", build_script)
+        self.assertIn("Assert-NoReparseTree", build_script)
+        self.assertIn("verify_licenses.py", build_script)
+        self.assertIn("LICENSE-MANIFEST.json", build_script)
 
     def test_macos_verification_uses_packaged_smoke_mode(self) -> None:
         script = (
@@ -872,6 +1160,242 @@ class ReleaseConfigurationTests(unittest.TestCase):
         )
         self.assertIn("gui_started", verifier)
         self.assertIn("git_returncode", verifier)
+        self.assertIn("verify_licenses.py", script)
+        self.assertIn("licenses", script)
+
+    def test_release_license_bundle_is_complete_and_hash_locked(self) -> None:
+        license_root = PROJECT_ROOT / "docs" / "licenses" / "distribution"
+        manifest_path = license_root / "LICENSE-MANIFEST.json"
+        verifier_path = PROJECT_ROOT / "scripts" / "verify_licenses.py"
+        self.assertTrue(verifier_path.is_file())
+        self.assertTrue(manifest_path.is_file())
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["python"]["major_minor"], "3.14")
+        self.assertEqual(manifest["pyside6"]["version"], "6.10.3")
+        self.assertEqual(manifest["pyinstaller"]["version"], "6.21.0")
+        self.assertEqual(
+            manifest["portable_git"]["version"],
+            "2.55.0.windows.3",
+        )
+        self.assertEqual(
+            set(manifest["portable_git"]["required_files"]),
+            {
+                "runtime/git/LICENSE.txt",
+                (
+                    "runtime/git/mingw64/doc/"
+                    "git-credential-manager/LICENSE"
+                ),
+                (
+                    "runtime/git/mingw64/doc/"
+                    "git-credential-manager/NOTICE"
+                ),
+            },
+        )
+        required_names = {
+            "GNU-GPL-2.0.txt",
+            "GNU-GPL-3.0.txt",
+            "GNU-LGPL-3.0.txt",
+            "Inno-Setup-Chinese-Translation-LICENSE.txt",
+            "PySide6-6.10.3-METADATA.txt",
+            "PySide6_Addons-6.10.3-METADATA.txt",
+            "PySide6_Essentials-6.10.3-METADATA.txt",
+            "PyInstaller-6.21-COPYING.txt",
+            "Python-3.14-LICENSE.txt",
+            "Qt-PySide6-Shiboken6-NOTICE.txt",
+            "Shiboken6-6.10.3-METADATA.txt",
+        }
+        self.assertEqual(set(manifest["files"]), required_names)
+        for file_name, expected_digest in manifest["files"].items():
+            with self.subTest(license_file=file_name):
+                license_path = license_root / file_name
+                self.assertTrue(license_path.is_file())
+                self.assertGreater(license_path.stat().st_size, 0)
+                self.assertEqual(
+                    hashlib.sha256(license_path.read_bytes()).hexdigest(),
+                    expected_digest,
+                )
+
+        verifier = verifier_path.read_text(encoding="utf-8")
+        self.assertIn("LICENSE-MANIFEST.json", verifier)
+        self.assertIn("sha256", verifier)
+        self.assertIn("Python runtime version", verifier)
+        self.assertIn("PortableGit runtime version", verifier)
+
+    def test_macos_archive_validator_rejects_wrong_architecture(self) -> None:
+        validator = PROJECT_ROOT / "scripts" / "validate_macos_archive.py"
+        self.assertTrue(validator.is_file())
+
+        with tempfile.TemporaryDirectory(
+            prefix="clickgit-macos-validator-"
+        ) as temporary_directory:
+            archive_path = Path(temporary_directory) / "ClickGit-macOS.zip"
+            self._write_fake_macos_archive(archive_path, "arm64")
+
+            valid_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(validator),
+                    str(archive_path),
+                    "--architecture",
+                    "arm64",
+                    "--version",
+                    "0.1.0",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(
+                valid_result.returncode,
+                0,
+                msg=valid_result.stderr,
+            )
+
+            invalid_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(validator),
+                    str(archive_path),
+                    "--architecture",
+                    "x86_64",
+                    "--version",
+                    "0.1.0",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertNotEqual(invalid_result.returncode, 0)
+            self.assertIn(
+                "Mach-O architecture mismatch",
+                invalid_result.stderr,
+            )
+
+            wrong_version_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(validator),
+                    str(archive_path),
+                    "--architecture",
+                    "arm64",
+                    "--version",
+                    "9.9.9",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertNotEqual(wrong_version_result.returncode, 0)
+            self.assertIn("bundle version mismatch", wrong_version_result.stderr)
+
+            self._write_fake_macos_archive(
+                archive_path,
+                "arm64",
+                executable_mode=0o100644,
+            )
+            non_executable_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(validator),
+                    str(archive_path),
+                    "--architecture",
+                    "arm64",
+                    "--version",
+                    "0.1.0",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertNotEqual(non_executable_result.returncode, 0)
+            self.assertIn("execute bits", non_executable_result.stderr)
+
+            self._write_fake_macos_archive(
+                archive_path,
+                "arm64",
+                executable_size=32,
+            )
+            truncated_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(validator),
+                    str(archive_path),
+                    "--architecture",
+                    "arm64",
+                    "--version",
+                    "0.1.0",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertNotEqual(truncated_result.returncode, 0)
+            self.assertIn("unexpectedly small", truncated_result.stderr)
+
+    def test_declared_build_versions_match_release_environment(self) -> None:
+        workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+        notices = (
+            PROJECT_ROOT / "THIRD-PARTY-NOTICES.txt"
+        ).read_text(encoding="utf-8")
+        portable_git = (
+            PROJECT_ROOT / "scripts" / "download-portable-git.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(workflow.count('python-version: "3.14"'), 2)
+        self.assertIn("Python 3.14", notices)
+        self.assertIn("Git for Windows 2.55.0.windows.3", notices)
+        self.assertIn('$ExpectedGitVersion = "2.55.0.windows.3"', portable_git)
+        self.assertIn("PortableGit runtime version", portable_git)
+
+    def test_release_version_is_consistent_across_build_entry_points(
+        self,
+    ) -> None:
+        project = tomllib.loads(
+            (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        windows_installer = (
+            PROJECT_ROOT / "installer" / "ClickGit.iss"
+        ).read_text(encoding="utf-8")
+        macos_spec = (
+            PROJECT_ROOT / "installer" / "clickgit-macos.spec"
+        ).read_text(encoding="utf-8")
+        macos_build = (
+            PROJECT_ROOT / "scripts" / "build-macos.sh"
+        ).read_text(encoding="utf-8")
+        workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(project["project"]["version"], "0.2.0")
+        self.assertIn('#define AppVersion "0.2.0"', windows_installer)
+        self.assertIn('default: "0.2.0"', workflow)
+        self.assertIn("os.environ.get(", macos_spec)
+        self.assertIn('"CLICKGIT_VERSION"', macos_spec)
+        self.assertNotIn('version="0.1.0"', macos_spec)
+        self.assertIn(
+            'CLICKGIT_VERSION="${CLICKGIT_VERSION:-',
+            macos_build,
+        )
+        self.assertIn(
+            'CLICKGIT_VERSION="$RELEASE_VERSION"',
+            workflow,
+        )
+        self.assertIn("PROJECT_VERSION", workflow)
+        self.assertIn("does not match project version", workflow)
 
     def test_release_workflow_builds_three_native_artifacts(self) -> None:
         workflow = (
@@ -904,7 +1428,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         ]
         self.assertEqual(
             input_expression_lines,
-            ["RELEASE_INPUT: ${{ inputs.version }}"] * 2,
+            ["RELEASE_INPUT: ${{ inputs.version }}"] * 3,
         )
         self.assertIn("$ReleaseVersion = $env:RELEASE_INPUT", workflow)
         self.assertIn("$env:GITHUB_REF_NAME", workflow)
@@ -921,6 +1445,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertNotIn("ClickGit-Windows-x64.zip", workflow)
         self.assertIn("ClickGit-macOS-arm64.zip", workflow)
         self.assertIn("ClickGit-macOS-x64.zip", workflow)
+        self.assertIn("scripts/validate_macos_archive.py", workflow)
         self.assertIn(
             (
                 '$ReleaseDirectory = "artifacts\\release\\windows-x64"'
@@ -981,7 +1506,9 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("gh release upload", workflow)
         self.assertIn("gh release edit", workflow)
         self.assertIn("--draft", workflow)
-        self.assertIn("--clobber", workflow)
+        self.assertNotIn("--clobber", workflow)
+        self.assertIn("release_is_draft", workflow)
+        self.assertIn("checksum mismatch", workflow)
         self.assertIn("GH_REPO: ${{ github.repository }}", workflow)
         self.assertIn('VERSION="$RELEASE_INPUT"', workflow)
         self.assertIn('VERSION="${VERSION%%-retry*}"', workflow)
@@ -1000,21 +1527,43 @@ class ReleaseConfigurationTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
+            'WINDOWS_SHA_MANIFEST="release-assets/windows-x64/'
+            'SHA256SUMS.txt"',
+            workflow,
+        )
+        self.assertIn(
+            'MAC_SHA_MANIFEST="release-assets/macos/'
+            'SHA256SUMS.txt"',
+            workflow,
+        )
+        self.assertIn('for asset in "$@"; do', workflow)
+        self.assertIn('checksum_name="$(basename "$asset")"', workflow)
+        self.assertIn(
+            'checksum="$(sha256sum "$asset" | awk \'{print $1}\')"',
+            workflow,
+        )
+        self.assertIn(
             (
-                'gh release upload "$WINDOWS_TAG" \\\n'
-                '            "$WINDOWS_SETUP" \\\n'
-                '            "$WINDOWS_PORTABLE" \\\n'
-                "            --clobber"
+                'printf \'%s  %s\\n\' "$checksum" "$checksum_name" '
+                '>>"$manifest"'
             ),
             workflow,
         )
+        self.assertNotIn(
+            '"$MAC_X64_ASSET" >"$SHA_MANIFEST"',
+            workflow,
+        )
+        self.assertIn('"$WINDOWS_SHA_MANIFEST"', workflow)
+        self.assertIn('"$MAC_SHA_MANIFEST"', workflow)
         required_asset_checks = (
             'test -f "$WINDOWS_SETUP"',
             'test -f "$WINDOWS_PORTABLE"',
             'test -f "$MAC_ARM_ASSET"',
             'test -f "$MAC_X64_ASSET"',
+            'test -f "$WINDOWS_SHA_MANIFEST"',
+            'test -f "$MAC_SHA_MANIFEST"',
         )
-        self.assertEqual(workflow.count("test -f "), 4)
+        self.assertEqual(workflow.count("test -f "), 6)
         for asset_check in required_asset_checks:
             with self.subTest(asset_check=asset_check):
                 self.assertIn(asset_check, workflow)
@@ -1036,18 +1585,14 @@ class ReleaseConfigurationTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("assert_release_tag_target() {", workflow)
+        self.assertIn("assert_release_target() {", workflow)
+        self.assertIn("--json targetCommitish", workflow)
         self.assertIn(
             'if [[ "$resolved_sha" != "$GITHUB_SHA" ]]; then',
             workflow,
         )
-        self.assertIn(
-            'assert_release_tag_target "$WINDOWS_TAG"',
-            workflow,
-        )
-        self.assertIn(
-            'assert_release_tag_target "$MAC_TAG"',
-            workflow,
-        )
+        self.assertIn('assert_release_target "$WINDOWS_TAG"', workflow)
+        self.assertIn('assert_release_target "$MAC_TAG"', workflow)
         self.assertIn(
             (
                 'if gh api "repos/${GH_REPO}/git/ref/tags/'
@@ -1063,6 +1608,14 @@ class ReleaseConfigurationTests(unittest.TestCase):
             workflow,
         )
         self.assertEqual(workflow.count('--target "$GITHUB_SHA"'), 2)
+        self.assertIn("ensure_release_asset() {", workflow)
+        self.assertIn("gh release download", workflow)
+        self.assertIn("Existing release asset checksum mismatch", workflow)
+        self.assertNotIn("assert_assets_absent() {", workflow)
+        self.assertNotIn(
+            "is already published; refusing to overwrite it",
+            workflow,
+        )
         asset_check_index = workflow.index(
             'test -f "$MAC_X64_ASSET"'
         )
@@ -1080,14 +1633,16 @@ class ReleaseConfigurationTests(unittest.TestCase):
             'if gh release view "$WINDOWS_TAG"'
         )
         windows_upload_index = workflow.index(
-            'gh release upload "$WINDOWS_TAG"'
+            'ensure_release_asset "$WINDOWS_TAG"'
         )
-        mac_upload_index = workflow.index('gh release upload "$MAC_TAG"')
+        mac_upload_index = workflow.index(
+            'ensure_release_asset "$MAC_TAG"'
+        )
         self.assertLess(asset_check_index, windows_tag_check_index)
         self.assertLess(
             windows_release_check_index,
             workflow.index(
-                'assert_release_tag_target "$WINDOWS_TAG"'
+                'assert_release_target "$WINDOWS_TAG"'
             ),
         )
         self.assertLess(
@@ -1095,7 +1650,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
             windows_upload_index,
         )
         self.assertLess(
-            workflow.index('assert_release_tag_target "$MAC_TAG"'),
+            workflow.index('assert_release_target "$MAC_TAG"'),
             mac_upload_index,
         )
         self.assertIn("安装版", workflow)

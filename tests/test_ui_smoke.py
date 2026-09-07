@@ -127,7 +127,8 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.controller.reset(first.oid, mode="hard")
         self._wait_until(
-            lambda: tracked.read_text(encoding="utf-8") == "one\n"
+            lambda: tracked.exists()
+            and tracked.read_text(encoding="utf-8") == "one\n"
             and len(list(self.controller.recovery_root.glob("*/manifest.json")))
             == 1
         )

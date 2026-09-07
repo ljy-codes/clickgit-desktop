@@ -279,16 +279,19 @@ class ProjectMetadataTests(unittest.TestCase):
         self.assertTrue(license_text.startswith("MIT License\n"))
         self.assertIn("Copyright (c) 2026 ljy-codes", license_text)
 
-    def test_change_log_and_release_record_describe_v010(self) -> None:
+    def test_change_log_and_release_records_describe_versions(self) -> None:
         changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text(
             encoding="utf-8"
         )
-        release = (
+        release_v010 = (
             PROJECT_ROOT / "docs" / "releases" / "2026-07-28-v0.1.0.md"
         ).read_text(encoding="utf-8")
+        release_v020_path = (
+            PROJECT_ROOT / "docs" / "releases" / "2026-09-07-v0.2.0.md"
+        )
 
         self.assertIn("## [Unreleased]", changelog)
-        self.assertIn("### Changed", changelog)
+        self.assertIn("## [0.2.0] - 2026-09-07", changelog)
         self.assertIn(
             "将工程治理、产品文档和交付清单纳入发布门禁",
             changelog,
@@ -297,15 +300,22 @@ class ProjectMetadataTests(unittest.TestCase):
         self.assertIn(
             (
                 "https://github.com/ljy-codes/clickgit-desktop/"
-                "compare/windows-v0.1.0...HEAD"
+                "compare/windows-v0.2.0...HEAD"
             ),
             changelog,
         )
-        self.assertIn("windows-v0.1.0", release)
-        self.assertIn("mac-v0.1.0", release)
-        self.assertIn("ClickGit-Windows-x64.zip", release)
-        self.assertIn("ClickGit-macOS-arm64.zip", release)
-        self.assertIn("ClickGit-macOS-x64.zip", release)
+        self.assertTrue(release_v020_path.is_file())
+        release_v020 = release_v020_path.read_text(encoding="utf-8")
+        self.assertIn("windows-v0.1.0", release_v010)
+        self.assertIn("mac-v0.1.0", release_v010)
+        self.assertIn("ClickGit-Windows-x64.zip", release_v010)
+        self.assertIn("windows-v0.2.0", release_v020)
+        self.assertIn("mac-v0.2.0", release_v020)
+        self.assertIn("ClickGit-Windows-x64-Setup.exe", release_v020)
+        self.assertIn("ClickGit-Windows-x64-Portable.zip", release_v020)
+        self.assertIn("ClickGit-macOS-arm64.zip", release_v020)
+        self.assertIn("ClickGit-macOS-x64.zip", release_v020)
+        self.assertIn("SHA256SUMS.txt", release_v020)
         for feature in (
             "Worktree",
             "子模块",
@@ -322,10 +332,10 @@ class ProjectMetadataTests(unittest.TestCase):
             "仓库维护",
         ):
             with self.subTest(document="release", feature=feature):
-                self.assertIn(feature, release)
+                self.assertIn(feature, release_v010)
         self.assertIn(
             "大型仓库的历史记录默认最多加载 200 条",
-            release,
+            release_v010,
         )
         for release_section in (
             "## SHA-256",
@@ -335,20 +345,21 @@ class ProjectMetadataTests(unittest.TestCase):
             "## 回滚方式",
         ):
             with self.subTest(release_section=release_section):
-                self.assertIn(release_section, release)
+                self.assertIn(release_section, release_v010)
+                self.assertIn(release_section, release_v020)
         self.assertIn(
             "v0.1.0 发布时的三个 GitHub Release 附件 SHA-256 未保存在",
-            release,
+            release_v010,
         )
         self.assertIn(
             "v0.1.0 发布时的完整测试命令、数量和日志未保存在",
-            release,
+            release_v010,
         )
-        self.assertIn("Windows：未代码签名", release)
-        self.assertIn("macOS：未签名、未公证", release)
+        self.assertIn("Windows：未代码签名", release_v010)
+        self.assertIn("macOS：未签名、未公证", release_v010)
         self.assertIn(
             "仅在重新核验附件存在、架构和 SHA-256 后",
-            release,
+            release_v010,
         )
         for delivery_change in (
             "_internal",
@@ -391,23 +402,23 @@ class ProjectMetadataTests(unittest.TestCase):
                 "Open-source distribution must retain the applicable LGPL "
                 "or GPL license texts"
             ),
-            (
-                "This baseline does not prove that the required Qt and "
-                "PySide6 license materials"
-            ),
+            "LICENSE-MANIFEST.json",
+            "scripts/verify_licenses.py",
+            "SHA-256",
             "the release must be blocked",
             (
                 "docs/licenses is established as the project's "
                 "license-governance entry point"
             ),
-            "must be populated and maintained there before the next release",
-            (
-                "The directory's presence does not prove that the current "
-                "release archives contain all required materials"
-            ),
+            "Python 3.14",
+            "Git for Windows 2.55.0.windows.3",
         ):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, normalized_notice)
+        self.assertNotIn(
+            "must be populated and maintained there before the next release",
+            normalized_notice,
+        )
         self.assertNotIn(
             "docs/licenses must be created",
             normalized_notice,
@@ -431,8 +442,7 @@ class ProjectMetadataTests(unittest.TestCase):
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
         required_sections = (
             "## 下载",
-            "### 当前稳定版 v0.1.0",
-            "### 下一版本交付格式与本地构建产物",
+            "### 当前稳定版 v0.2.0",
             "## 快速开始",
             "## 功能矩阵",
             "## 安全与恢复",
@@ -447,43 +457,42 @@ class ProjectMetadataTests(unittest.TestCase):
             with self.subTest(section=section):
                 self.assertIn(section, readme)
 
-        self.assertIn("windows-v0.1.0", readme)
-        self.assertIn("mac-v0.1.0", readme)
+        self.assertIn("windows-v0.2.0", readme)
+        self.assertIn("mac-v0.2.0", readme)
         self.assertIn("MIT", readme)
         for download_url in (
             (
                 "https://github.com/ljy-codes/clickgit-desktop/releases/"
-                "tag/windows-v0.1.0"
+                "tag/windows-v0.2.0"
             ),
             (
                 "https://github.com/ljy-codes/clickgit-desktop/releases/"
-                "tag/mac-v0.1.0"
+                "tag/mac-v0.2.0"
             ),
             (
                 "https://github.com/ljy-codes/clickgit-desktop/releases/"
-                "download/windows-v0.1.0/ClickGit-Windows-x64.zip"
+                "download/windows-v0.2.0/"
+                "ClickGit-Windows-x64-Setup.exe"
             ),
             (
                 "https://github.com/ljy-codes/clickgit-desktop/releases/"
-                "download/mac-v0.1.0/ClickGit-macOS-arm64.zip"
+                "download/windows-v0.2.0/"
+                "ClickGit-Windows-x64-Portable.zip"
             ),
             (
                 "https://github.com/ljy-codes/clickgit-desktop/releases/"
-                "download/mac-v0.1.0/ClickGit-macOS-x64.zip"
+                "download/mac-v0.2.0/ClickGit-macOS-arm64.zip"
+            ),
+            (
+                "https://github.com/ljy-codes/clickgit-desktop/releases/"
+                "download/mac-v0.2.0/ClickGit-macOS-x64.zip"
             ),
         ):
             with self.subTest(download_url=download_url):
                 self.assertIn(download_url, readme)
 
         current_release = readme.split(
-            "### 当前稳定版 v0.1.0",
-            maxsplit=1,
-        )[1].split(
-            "### 下一版本交付格式与本地构建产物",
-            maxsplit=1,
-        )[0]
-        next_release_format = readme.split(
-            "### 下一版本交付格式与本地构建产物",
+            "### 当前稳定版 v0.2.0",
             maxsplit=1,
         )[1].split("## 快速开始", maxsplit=1)[0]
         windows_quick_start = readme.split(
@@ -493,35 +502,24 @@ class ProjectMetadataTests(unittest.TestCase):
 
         current_windows_url = (
             "https://github.com/ljy-codes/clickgit-desktop/releases/"
-            "download/windows-v0.1.0/ClickGit-Windows-x64.zip"
+            "download/windows-v0.2.0/ClickGit-Windows-x64-Setup.exe"
         )
         self.assertIn(current_windows_url, current_release)
-        self.assertIn("ClickGit-Windows-x64.zip", current_release)
-        self.assertIn("历史便携包", current_release)
-        self.assertNotIn(
+        self.assertIn(
             "ClickGit-Windows-x64-Setup.exe",
             current_release,
         )
-        self.assertNotIn(
+        self.assertIn(
             "ClickGit-Windows-x64-Portable.zip",
             current_release,
         )
-
-        self.assertIn(
-            "ClickGit-Windows-x64-Setup.exe",
-            next_release_format,
-        )
-        self.assertIn(
-            "ClickGit-Windows-x64-Portable.zip",
-            next_release_format,
-        )
-        self.assertIn("本地构建产物", next_release_format)
-        self.assertIn("尚未作为当前稳定版附件发布", next_release_format)
-
+        self.assertIn("SHA256SUMS.txt", current_release)
         self.assertIn(current_windows_url, windows_quick_start)
-        self.assertIn("ClickGit-Windows-x64.zip", windows_quick_start)
-        self.assertIn("新版本发布后", windows_quick_start)
-        self.assertIn("优先安装版", windows_quick_start)
+        self.assertIn(
+            "ClickGit-Windows-x64-Portable.zip",
+            windows_quick_start,
+        )
+        self.assertIn("优先下载并运行安装版", windows_quick_start)
 
         for required_text in (
             "ClickGit-Windows-x64-Setup.exe",
@@ -540,16 +538,16 @@ class ProjectMetadataTests(unittest.TestCase):
             readme,
         )
         self.assertIn(
-            "当前发布工作流尚未自动检查第三方许可证材料",
+            "按 `LICENSE-MANIFEST.json` 校验许可证文件 SHA-256",
             readme,
         )
-        self.assertIn("检查未完成不得发布", readme)
+        self.assertIn("版本或材料\n不一致时停止打包", readme)
         self.assertIn(
-            "目前是待完善的许可证治理入口",
+            "已发布的同版本 Release 和同名附件不会被覆盖",
             readme,
         )
         self.assertIn(
-            "不代表现有发布包的许可证材料已经齐全",
+            "Qt/PySide6/Shiboken6 通知、源码提供说明和摘要清单",
             readme,
         )
 

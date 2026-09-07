@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-09-07",
+  "python": {
+    "major_minor": "3.14",
+    "license_file": "Python-3.14-LICENSE.txt"
+  },
+  "pyside6": {
+    "version": "6.10.3",
+    "license_expression": "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only"
+  },
+  "pyinstaller": {
+    "version": "6.21.0",
+    "license_file": "PyInstaller-6.21-COPYING.txt"
+  },
+  "portable_git": {
+    "version": "2.55.0.windows.3",
+    "archive_version": "2.55.0.3",
+    "archive_sha256": "ab00566336b5472120f9a52d34f2e79c5406535792acb0548001ffd0bd090e5d",
+    "required_files": [
+      "runtime/git/LICENSE.txt",
+      "runtime/git/mingw64/doc/git-credential-manager/LICENSE",
+      "runtime/git/mingw64/doc/git-credential-manager/NOTICE"
+    ]
+  },
+  "files": {
+    "GNU-GPL-2.0.txt": "5b2198d1645f767585e8a88ac0499b04472164c0d2da22e75ecf97ef443ab32e",
+    "GNU-GPL-3.0.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "GNU-LGPL-3.0.txt": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+    "Inno-Setup-Chinese-Translation-LICENSE.txt": "02f0dd3b98833040147d01daf91243c24392a33ddced674152220b5216782c6a",
+    "PyInstaller-6.21-COPYING.txt": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245",
+    "PySide6-6.10.3-METADATA.txt": "7bc0f47d30861311f010a0f180dd2e7b42ef57ed40d6cab0e9fd0f588d2e9350",
+    "PySide6_Addons-6.10.3-METADATA.txt": "fd7b980088d0b5bbee1dc9b6cc35bcfe18e77da5bf2e419c9fa5295d3009994f",
+    "PySide6_Essentials-6.10.3-METADATA.txt": "ff8451dfee48ba95bb6f3af1fdd63b793234b65ddd772d39eb2f1b3c4f9911cd",
+    "Python-3.14-LICENSE.txt": "935cf13e19f8c31b497d20b05d73623431a226b230c3599bc30fa3348979bc68",
+    "Qt-PySide6-Shiboken6-NOTICE.txt": "60b123a209f4137854daa84b45428dd819755d0cc1152e65056b33a6a331b090",
+    "Shiboken6-6.10.3-METADATA.txt": "15ff29153e22f81bc86a2d88254fba5c9153e682ed951893ec5401639159bb1f"
+  }
+}

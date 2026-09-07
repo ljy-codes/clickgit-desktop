@@ -1,0 +1,43 @@
+Qt, PySide6 and Shiboken6 Distribution Notice
+================================================
+
+ClickGit distributes PySide6 6.10.3, Shiboken6 6.10.3 and the Qt 6.10.3
+shared libraries selected by PyInstaller. This distribution uses the
+open-source license option declared by the upstream Python wheels:
+
+LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+
+ClickGit is not distributed under a commercial Qt license. The accompanying
+GNU-LGPL-3.0.txt, GNU-GPL-2.0.txt and GNU-GPL-3.0.txt files contain the
+applicable license texts. ClickGit itself remains licensed under the MIT
+License.
+
+The Qt shared libraries remain separate dynamically loaded files inside the
+application package. Users may inspect, replace and relink those libraries as
+permitted by the applicable open-source license. ClickGit does not add terms
+that prohibit reverse engineering for debugging modifications to those
+libraries.
+
+Corresponding source offer
+--------------------------
+
+For three years from September 7, 2026, the ClickGit distributor will provide
+the complete corresponding source used for the Qt 6.10.3, PySide6 6.10.3 and
+Shiboken6 6.10.3 components in this distribution, including applicable build
+material, at no charge other than reasonable physical transfer cost.
+
+Request the source through:
+https://github.com/ljy-codes/clickgit-desktop/issues
+
+Upstream project references
+---------------------------
+
+Qt source code:
+https://download.qt.io/archive/qt/6.10/6.10.3/single/
+
+Qt for Python source code:
+https://code.qt.io/cgit/pyside/pyside-setup.git/
+
+This notice is an attribution and source-availability statement. It does not
+replace the complete license texts or the notices embedded in the bundled
+third-party components.

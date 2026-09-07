@@ -10,42 +10,30 @@ ClickGit 是面向完全不使用 Git 命令行用户的 Windows 和 macOS 桌�
 
 ## 下载
 
-### 当前稳定版 v0.1.0
+### 当前稳定版 v0.2.0
 
-- [`windows-v0.1.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/windows-v0.1.0)
-  - [`ClickGit-Windows-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.1.0/ClickGit-Windows-x64.zip)：历史便携包
-- [`mac-v0.1.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/mac-v0.1.0)
-  - [`ClickGit-macOS-arm64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-arm64.zip)：macOS Apple Silicon
-  - [`ClickGit-macOS-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-x64.zip)：macOS Intel
+- [`windows-v0.2.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/windows-v0.2.0)
+  - [`ClickGit-Windows-x64-Setup.exe`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.2.0/ClickGit-Windows-x64-Setup.exe)：安装版，普通用户优先
+  - [`ClickGit-Windows-x64-Portable.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.2.0/ClickGit-Windows-x64-Portable.zip)：免安装便携版
+  - [`SHA256SUMS.txt`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.2.0/SHA256SUMS.txt)：两个 Windows 安装包的校验值
+- [`mac-v0.2.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/mac-v0.2.0)
+  - [`ClickGit-macOS-arm64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.2.0/ClickGit-macOS-arm64.zip)：macOS Apple Silicon
+  - [`ClickGit-macOS-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.2.0/ClickGit-macOS-x64.zip)：macOS Intel
+  - [`SHA256SUMS.txt`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.2.0/SHA256SUMS.txt)：两个 macOS 安装包的校验值
 
-当前稳定版的 Windows Release 只有上述历史便携包，不包含新版安装包。macOS
-版本包含应用运行环境，但需要系统 Git。
-使用 Git LFS 功能时还需安装 Git LFS。
-
-### 下一版本交付格式与本地构建产物
-
-本地执行 `scripts\package.ps1` 后，Windows 会生成：
-
-- `ClickGit-Windows-x64-Setup.exe`：安装版优先，适合普通用户
-- `ClickGit-Windows-x64-Portable.zip`：便携版备用，适合无安装权限或需要随身携带的场景
-
-这两个新文件名是下一版本的交付格式和本地构建产物。
-它们尚未作为当前稳定版附件发布。两种包均包含 PortableGit，不要求另外安装
-Git、Python 或 Qt。
+Windows 两种包均包含 PortableGit，不要求另外安装 Git、Python 或 Qt。macOS
+版本包含应用运行环境，但需要系统 Git。使用 Git LFS 功能时还需安装 Git LFS。
 
 ## 快速开始
 
 ### Windows
 
-当前稳定版 `v0.1.0`：
-
-1. 下载 [`ClickGit-Windows-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.1.0/ClickGit-Windows-x64.zip)。
-2. 完整解压下载的历史便携包。
-3. 保留解压后的完整 `ClickGit` 目录，不单独移动其中的 EXE。
-4. 双击 `ClickGit.exe`。
-
-新版本发布后，普通用户优先安装版；无安装权限或需要随身携带时再使用便携版
-备用。
+1. 优先下载并运行安装版
+   [`ClickGit-Windows-x64-Setup.exe`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.2.0/ClickGit-Windows-x64-Setup.exe)。
+2. 无安装权限时，下载
+   [`ClickGit-Windows-x64-Portable.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.2.0/ClickGit-Windows-x64-Portable.zip)。
+3. 使用便携版时完整解压，保留完整 `ClickGit` 目录，再双击
+   `ClickGit.exe`。
 
 启动后，点击“打开仓库”“克隆”或“新建仓库”，勾选文件并点击“暂存”，
 输入提交说明后点击“提交暂存内容”，再使用“获取”“拉取”和“推送”同步
@@ -123,13 +111,13 @@ Windows 构建、打包和验证：
 .\scripts\download-portable-git.ps1
 .\scripts\build.ps1
 .\scripts\verify-package.ps1
-.\scripts\package.ps1 -Version 0.1.0
+.\scripts\package.ps1 -Version 0.2.0
 ```
 
 整理本机外层交付目录：
 
 ```powershell
-.\scripts\publish.ps1 -Version 0.1.0
+.\scripts\publish.ps1 -Version 0.2.0
 ```
 
 `scripts\package.ps1` 生成 Windows 安装版和便携版；`scripts\publish.ps1`
@@ -170,12 +158,14 @@ mac-vX.Y.Z
 Windows Release 以 `ClickGit-Windows-x64-Setup.exe` 安装版优先，并提供
 `ClickGit-Windows-x64-Portable.zip` 便携版备用。macOS Release 保留
 `ClickGit-macOS-arm64.zip` 和 `ClickGit-macOS-x64.zip` 双架构附件。
+两个 Release 都附带各自平台安装包的 `SHA256SUMS.txt`。
 文档描述的是发布流程和产物约定；只有工作流实际成功后，才表示对应 GitHub
 附件已同步。
 
 版本变化记录在 [CHANGELOG.md](CHANGELOG.md)，详细发布记录保存在
-`docs/releases`。当前发布工作流尚未自动检查第三方许可证材料；在自动化
-门禁建立前，发布负责人必须按实际产物人工检查，检查未完成不得发布。
+`docs/releases`。构建会核对 Python、PySide6、PyInstaller 和 PortableGit
+版本，并按 `LICENSE-MANIFEST.json` 校验许可证文件 SHA-256。版本或材料
+不一致时停止打包。已发布的同版本 Release 和同名附件不会被覆盖。
 
 ## 已知限制
 
@@ -187,6 +177,7 @@ Windows Release 以 `ClickGit-Windows-x64-Setup.exe` 安装版优先，并提供
 ## 许可证
 
 ClickGit 源码采用 [MIT License](LICENSE)。发布包包含的第三方组件继续遵循
-各自许可证，基线声明见
-[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。`docs/licenses`
-目前是待完善的许可证治理入口，不代表现有发布包的许可证材料已经齐全。
+各自许可证，声明见
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。随包分发的许可证原文、
+Qt/PySide6/Shiboken6 通知、源码提供说明和摘要清单位于
+`docs/licenses/distribution`。

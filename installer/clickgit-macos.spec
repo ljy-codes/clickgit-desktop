@@ -1,11 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+import tomllib
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules
 
 
 project_root = Path(SPECPATH).parent
+project_metadata = tomllib.loads(
+    (project_root / "pyproject.toml").read_text(encoding="utf-8")
+)
+app_version = os.environ.get(
+    "CLICKGIT_VERSION",
+    project_metadata["project"]["version"],
+)
 
 analysis = Analysis(
     [str(project_root / "src" / "clickgit" / "__main__.py")],
@@ -71,7 +80,7 @@ app = BUNDLE(
     name="ClickGit.app",
     icon=None,
     bundle_identifier="io.github.ljy-codes.clickgit",
-    version="0.1.0",
+    version=app_version,
     info_plist={
         "CFBundleDisplayName": "ClickGit",
         "CFBundleName": "ClickGit",
