@@ -456,7 +456,7 @@ the final progress report rather than the Git commit.
 **Files:**
 - Modify: outer `进度.md`
 
-- [ ] **Step 1: Run all automated tests**
+- [x] **Step 1: Run all automated tests**
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -466,7 +466,7 @@ $env:QT_QPA_PLATFORM = "offscreen"
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Rebuild and verify Windows packages**
+- [x] **Step 2: Rebuild and verify Windows packages**
 
 ```powershell
 .\scripts\package.ps1 -Version 0.1.0
@@ -475,7 +475,7 @@ Expected: all tests pass.
 
 Expected: installer and portable ZIP exist and package smoke passes.
 
-- [ ] **Step 3: Test installer lifecycle**
+- [x] **Step 3: Test installer lifecycle**
 
 Install silently into a temporary directory:
 
@@ -489,7 +489,7 @@ Run the installed `ClickGit.exe --smoke-test`, verify bundled Git, invoke the
 generated uninstaller silently, and confirm the temporary installation
 directory is removed.
 
-- [ ] **Step 4: Publish final local delivery**
+- [x] **Step 4: Publish final local delivery**
 
 ```powershell
 .\scripts\publish.ps1 -Version 0.1.0 -SkipPackage
@@ -508,21 +508,21 @@ ClickGit-安装包.exe
 
 Confirm `交付产品\ClickGit` and `交付产品\ClickGit.zip` no longer exist.
 
-- [ ] **Step 5: Validate checksums and directory cleanliness**
+- [x] **Step 5: Validate checksums and directory cleanliness**
 
 Recalculate SHA-256 for every packaged file and compare it with
 `SHA256SUMS.txt`. Recursively confirm that no `.pyd`, `.dll`, `PySide6`
 directory, or unpacked application folder exists directly under
 `交付产品`.
 
-- [ ] **Step 6: Update progress**
+- [x] **Step 6: Update progress**
 
 Record confirmed facts, modified files, final directory tree, test totals,
 package smoke output, installer lifecycle result, compatibility, risks,
 remaining macOS/GitHub release work, and commit identifiers in outer
 `进度.md`.
 
-- [ ] **Step 7: Final repository checks**
+- [x] **Step 7: Final repository checks**
 
 ```powershell
 git diff --check
