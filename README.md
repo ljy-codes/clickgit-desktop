@@ -10,28 +10,40 @@ ClickGit 是面向完全不使用 Git 命令行用户的 Windows 和 macOS 桌�
 
 ## 下载
 
-当前版本为 `v0.1.0`，Windows 和 macOS 分别发布：
+当前版本记录为 `v0.1.0`，Windows 和 macOS 分别使用以下 Release：
 
 - [`windows-v0.1.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/windows-v0.1.0)
-  - [`ClickGit-Windows-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/windows-v0.1.0/ClickGit-Windows-x64.zip)
+  - `ClickGit-Windows-x64-Setup.exe`：安装版优先
+  - `ClickGit-Windows-x64-Portable.zip`：便携版备用
 - [`mac-v0.1.0`](https://github.com/ljy-codes/clickgit-desktop/releases/tag/mac-v0.1.0)
-  - [`ClickGit-macOS-arm64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-arm64.zip)：Apple Silicon
-  - [`ClickGit-macOS-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-x64.zip)：Intel Mac
+  - [`ClickGit-macOS-arm64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-arm64.zip)：macOS Apple Silicon
+  - [`ClickGit-macOS-x64.zip`](https://github.com/ljy-codes/clickgit-desktop/releases/download/mac-v0.1.0/ClickGit-macOS-x64.zip)：macOS Intel
 
-Windows 便携版包含 PortableGit，不要求安装 Git、Python 或 Qt。macOS 版本
-包含应用运行环境，但需要系统 Git；使用 Git LFS 功能时还需安装 Git LFS。
+Windows 安装版和便携版均包含 PortableGit，不要求另外安装 Git、Python 或
+Qt。安装版优先，适合普通用户；便携版备用，适合无安装权限或需要随身携带
+的场景。上述 Windows 文件名是当前发布流程的产物约定，不表示尚未执行的
+GitHub 发布已经完成。macOS 版本包含应用运行环境，但需要系统 Git；
+使用 Git LFS 功能时还需安装 Git LFS。
 
 ## 快速开始
 
 ### Windows
 
-1. 下载并解压 `ClickGit-Windows-x64.zip`。
-2. 保留完整的 `ClickGit` 目录。
+安装版优先：
+
+1. 下载 `ClickGit-Windows-x64-Setup.exe`。
+2. 双击安装包，按安装向导完成安装。
+3. 从开始菜单或桌面快捷方式启动 ClickGit。
+
+便携版备用：
+
+1. 下载并完整解压 `ClickGit-Windows-x64-Portable.zip`。
+2. 保留解压后的完整 `ClickGit` 目录，不单独移动其中的 EXE。
 3. 双击 `ClickGit.exe`。
-4. 点击“打开仓库”“克隆”或“新建仓库”。
-5. 勾选文件并点击“暂存”。
-6. 输入提交说明并点击“提交暂存内容”。
-7. 使用“获取”“拉取”和“推送”同步远程仓库。
+
+启动后，点击“打开仓库”“克隆”或“新建仓库”，勾选文件并点击“暂存”，
+输入提交说明后点击“提交暂存内容”，再使用“获取”“拉取”和“推送”同步
+远程仓库。
 
 ### macOS
 
@@ -99,13 +111,24 @@ $env:QT_QPA_PLATFORM = "offscreen"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
 ```
 
-Windows 构建和验证：
+Windows 构建、打包和验证：
 
 ```powershell
 .\scripts\download-portable-git.ps1
 .\scripts\build.ps1
 .\scripts\verify-package.ps1
+.\scripts\package.ps1 -Version 0.1.0
 ```
+
+整理本机外层交付目录：
+
+```powershell
+.\scripts\publish.ps1 -Version 0.1.0
+```
+
+`scripts\package.ps1` 生成 Windows 安装版和便携版；`scripts\publish.ps1`
+将最终包、用户文档和 SHA-256 清单整理到外层目录。展开的应用运行文件只保留
+在 `artifacts` 中。
 
 macOS 构建：
 
@@ -119,9 +142,9 @@ scripts/build-macos.sh
 ```text
 artifacts/   本地和 CI 生成的构建产物
 docs/        设计、开发、许可证和发布记录
-installer/   PyInstaller 和后续安装器配置
+installer/   PyInstaller 和 Windows 安装器配置
 runtime/     Windows PortableGit 运行时
-scripts/     构建、验证和运行时准备脚本
+scripts/     构建、验证、打包和发布脚本
 src/         ClickGit 源码
 tests/       自动化测试
 ```
@@ -137,6 +160,12 @@ Silicon 和 macOS Intel Runner 上测试并构建。三个构建全部成功后�
 windows-vX.Y.Z
 mac-vX.Y.Z
 ```
+
+Windows Release 以 `ClickGit-Windows-x64-Setup.exe` 安装版优先，并提供
+`ClickGit-Windows-x64-Portable.zip` 便携版备用。macOS Release 保留
+`ClickGit-macOS-arm64.zip` 和 `ClickGit-macOS-x64.zip` 双架构附件。
+文档描述的是发布流程和产物约定；只有工作流实际成功后，才表示对应 GitHub
+附件已同步。
 
 版本变化记录在 [CHANGELOG.md](CHANGELOG.md)，详细发布记录保存在
 `docs/releases`。当前发布工作流尚未自动检查第三方许可证材料；在自动化

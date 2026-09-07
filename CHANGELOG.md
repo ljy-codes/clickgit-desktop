@@ -13,6 +13,12 @@
 ### Changed
 
 - 将工程治理、产品文档和交付清单纳入发布门禁。
+- PyInstaller 运行依赖调整到 `_internal`，PortableGit 继续位于应用目录的
+  `runtime\git`。
+- Windows 交付改为安装版 `ClickGit-Windows-x64-Setup.exe` 优先，并提供
+  便携包 `ClickGit-Windows-x64-Portable.zip` 备用。
+- 发布脚本使用干净交付目录，仅保留最终 Windows/macOS 包和包含 SHA-256
+  校验值的 `SHA256SUMS.txt`，不再暴露展开的运行依赖。
 
 ## [0.1.0] - 2026-07-28
 

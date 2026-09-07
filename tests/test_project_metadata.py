@@ -350,6 +350,15 @@ class ProjectMetadataTests(unittest.TestCase):
             "仅在重新核验附件存在、架构和 SHA-256 后",
             release,
         )
+        for delivery_change in (
+            "_internal",
+            "ClickGit-Windows-x64-Setup.exe",
+            "ClickGit-Windows-x64-Portable.zip",
+            "干净交付目录",
+            "SHA-256",
+        ):
+            with self.subTest(delivery_change=delivery_change):
+                self.assertIn(delivery_change, changelog)
 
     def test_third_party_notice_lists_distributed_components(self) -> None:
         notice = (PROJECT_ROOT / "THIRD-PARTY-NOTICES.txt").read_text(
@@ -446,10 +455,6 @@ class ProjectMetadataTests(unittest.TestCase):
             ),
             (
                 "https://github.com/ljy-codes/clickgit-desktop/releases/"
-                "download/windows-v0.1.0/ClickGit-Windows-x64.zip"
-            ),
-            (
-                "https://github.com/ljy-codes/clickgit-desktop/releases/"
                 "tag/mac-v0.1.0"
             ),
             (
@@ -464,6 +469,19 @@ class ProjectMetadataTests(unittest.TestCase):
             with self.subTest(download_url=download_url):
                 self.assertIn(download_url, readme)
 
+        for required_text in (
+            "ClickGit-Windows-x64-Setup.exe",
+            "ClickGit-Windows-x64-Portable.zip",
+            r"scripts\package.ps1",
+            r"scripts\publish.ps1",
+            "安装版优先",
+            "便携版备用",
+            "macOS Apple Silicon",
+            "macOS Intel",
+        ):
+            with self.subTest(required_text=required_text):
+                self.assertIn(required_text, readme)
+        self.assertNotIn("ClickGit-Windows-x64.zip", readme)
         self.assertIn(
             "使用 Git LFS 功能时还需安装 Git LFS",
             readme,
