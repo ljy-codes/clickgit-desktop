@@ -349,7 +349,7 @@ git commit -m "build: publish clean end-user deliverables"
 - Modify: `.github/workflows/release.yml`
 - Modify: `tests/test_release_configuration.py`
 
-- [ ] **Step 1: Update workflow assertions**
+- [x] **Step 1: Update workflow assertions**
 
 Require:
 
@@ -360,12 +360,12 @@ self.assertIn("ClickGit-Windows-x64-Portable.zip", workflow)
 self.assertNotIn("ClickGit-Windows-x64.zip", workflow)
 ```
 
-- [ ] **Step 2: Verify the updated assertions fail**
+- [x] **Step 2: Verify the updated assertions fail**
 
 Run `tests.test_release_configuration`. Expected: failure on the old Windows
 archive names.
 
-- [ ] **Step 3: Update the Windows job**
+- [x] **Step 3: Update the Windows job**
 
 Install Inno Setup, run:
 
@@ -380,7 +380,7 @@ artifacts/installer/ClickGit-Windows-x64-Setup.exe
 artifacts/package/ClickGit-Windows-x64-Portable.zip
 ```
 
-- [ ] **Step 4: Update release asset handling**
+- [x] **Step 4: Update release asset handling**
 
 Set:
 
@@ -392,7 +392,7 @@ WINDOWS_PORTABLE="release-assets/windows-x64/ClickGit-Windows-x64-Portable.zip"
 Upload both assets to `windows-v${VERSION}` and leave the two macOS ZIPs on
 `mac-v${VERSION}`.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 Run `tests.test_release_configuration`. Expected: all tests pass.
 
