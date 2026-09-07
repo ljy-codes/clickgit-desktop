@@ -1172,6 +1172,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["digest_mode"], "sha256-text-lf")
         self.assertEqual(manifest["python"]["major_minor"], "3.14")
         self.assertEqual(manifest["pyside6"]["version"], "6.10.3")
         self.assertEqual(manifest["pyinstaller"]["version"], "6.21.0")
@@ -1212,8 +1213,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 license_path = license_root / file_name
                 self.assertTrue(license_path.is_file())
                 self.assertGreater(license_path.stat().st_size, 0)
+                canonical_bytes = (
+                    license_path.read_bytes()
+                    .replace(b"\r\n", b"\n")
+                    .replace(b"\r", b"\n")
+                )
                 self.assertEqual(
-                    hashlib.sha256(license_path.read_bytes()).hexdigest(),
+                    hashlib.sha256(canonical_bytes).hexdigest(),
                     expected_digest,
                 )
 

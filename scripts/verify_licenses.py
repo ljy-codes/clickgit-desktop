@@ -11,12 +11,13 @@ from pathlib import Path
 MANIFEST_NAME = "LICENSE-MANIFEST.json"
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _text_lf_sha256(path: Path) -> str:
+    canonical_bytes = (
+        path.read_bytes()
+        .replace(b"\r\n", b"\n")
+        .replace(b"\r", b"\n")
+    )
+    return hashlib.sha256(canonical_bytes).hexdigest()
 
 
 def _load_manifest(license_root: Path) -> dict[str, object]:
@@ -26,6 +27,8 @@ def _load_manifest(license_root: Path) -> dict[str, object]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1:
         raise ValueError("Unsupported license manifest schema.")
+    if manifest.get("digest_mode") != "sha256-text-lf":
+        raise ValueError("Unsupported license manifest digest mode.")
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise ValueError("License manifest does not contain files.")
@@ -51,7 +54,7 @@ def _verify_files(
         file_path = license_root / file_name
         if not file_path.is_file() or file_path.stat().st_size == 0:
             raise ValueError(f"License file is missing or empty: {file_name}")
-        actual_digest = _sha256(file_path)
+        actual_digest = _text_lf_sha256(file_path)
         if actual_digest != expected_digest:
             raise ValueError(
                 f"License file SHA-256 mismatch: {file_name}"

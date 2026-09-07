@@ -10,8 +10,10 @@ Credential Manager 以及 PortableGit 中随包分发的依赖。macOS 清单必
 
 `distribution` 保存随 Windows 和 macOS 包分发的许可证原文、Qt/PySide6/
 Shiboken6 通知与源码提供说明。`LICENSE-MANIFEST.json` 固定依赖版本、文件
-清单和 SHA-256；`scripts/verify_licenses.py` 在构建前核对实际 Python、
-PySide6、PyInstaller、PortableGit 版本，并在打包后再次核对复制结果。
+清单和 SHA-256。许可证文本统一将 CRLF/CR 换行规范化为 LF 后计算摘要，
+保证 Windows 与 macOS 检出结果一致；`scripts/verify_licenses.py` 在构建前
+核对实际 Python、PySide6、PyInstaller、PortableGit 版本，并在打包后再次
+核对复制结果。
 
 任何版本、文件、摘要或包内材料不匹配时，构建必须失败。升级依赖时必须重新
 审查实际模块、更新原文与通知并重算摘要。自动校验只证明已声明材料一致，

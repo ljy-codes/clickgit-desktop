@@ -103,7 +103,9 @@ license, PyInstaller exception, and the notices retained inside PortableGit.
 
 The project-maintained distributable texts are stored under
 docs/licenses/distribution and are listed with SHA-256 digests in
-LICENSE-MANIFEST.json. Windows and macOS build scripts run
+LICENSE-MANIFEST.json. Text files are hashed after normalizing CRLF and CR line
+endings to LF so the same reviewed content has one digest on every platform.
+Windows and macOS build scripts run
 scripts/verify_licenses.py before packaging and verify the copied package
 again. If a declared dependency version, required file, packaged file set, or
 SHA-256 digest differs, the release must be blocked.
