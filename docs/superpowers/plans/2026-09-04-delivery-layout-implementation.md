@@ -268,7 +268,7 @@ git commit -m "build: add Windows installer packaging"
 - Create: `docs/user/产品介绍.html`
 - Create: `scripts/publish.ps1`
 
-- [ ] **Step 1: Create the installation guide**
+- [x] **Step 1: Create the installation guide**
 
 Create a responsive UTF-8 HTML document with these visible sections:
 
@@ -285,7 +285,7 @@ State that Windows users should prefer the installer, portable users must
 extract the complete ZIP, and macOS users must choose the matching CPU
 architecture.
 
-- [ ] **Step 2: Create the product introduction**
+- [x] **Step 2: Create the product introduction**
 
 Create a responsive UTF-8 HTML document containing:
 
@@ -297,7 +297,7 @@ Create a responsive UTF-8 HTML document containing:
 Describe click-only repository opening, cloning, committing, synchronizing,
 branching, conflict handling, and recovery without marketing-only content.
 
-- [ ] **Step 3: Create the safe publish script**
+- [x] **Step 3: Create the safe publish script**
 
 Implement `Assert-ChildPath` using normalized absolute paths and
 `StringComparison.OrdinalIgnoreCase`. Stage all outputs under
@@ -316,23 +316,27 @@ Preserve any valid macOS architecture ZIPs already present in
 `交付产品\ClickGit` directory and `交付产品\ClickGit.zip` after staging has
 been validated. Generate `SHA256SUMS.txt` from final delivery files.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run both metadata and release configuration test modules. Expected: all
 focused tests pass.
 
-- [ ] **Step 5: Publish locally**
+- [x] **Step 5: Validate publishing in a temporary layout**
 
-Run:
+Run the Windows integration test with temporary `ProjectRoot` and
+`OuterRoot` paths:
 
 ```powershell
-.\scripts\publish.ps1 -Version 0.1.0
+.\.venv\Scripts\python.exe -m unittest `
+  tests.test_release_configuration.ReleaseConfigurationTests.test_publish_script_replaces_delivery_safely -v
 ```
 
-Expected: the outer root contains the installer and two HTML documents;
-`交付产品` contains only packaged files and `SHA256SUMS.txt`.
+Expected: the temporary outer root contains the installer and two HTML
+documents; its `交付产品` contains only packaged files and
+`SHA256SUMS.txt`. The real outer delivery is replaced only in Task 7 after
+full verification.
 
-- [ ] **Step 6: Commit publishing and documents**
+- [x] **Step 6: Commit publishing and documents**
 
 ```powershell
 git add scripts/publish.ps1 docs/user
