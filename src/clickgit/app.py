@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import difflib
 from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass
@@ -9,11 +10,18 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from clickgit.defaults import MAX_RECENT_PROJECTS
+from clickgit.document_workflow import DocumentWorkflow, DocumentError, ComparisonList, MergePlan
 from clickgit.git_runner import GitRunner
 from clickgit.models import Branch, FileChange
 from clickgit.recovery import RecoveryManager, RecoveryPoint
 from clickgit.repository import OperationConflict, Repository
-from clickgit.settings import AppSettings, SettingsStore
+from clickgit.settings import (
+    AppSettings,
+    ProjectsSaveError,
+    SettingsStore,
+    SettingsValidationError,
+)
 from clickgit.tasks import RepositoryTaskQueue
 
 
@@ -23,6 +31,7 @@ class RepositorySnapshot:
     branch: str
     changes: tuple[FileChange, ...]
     branches: tuple[Branch, ...]
+    merge_active: bool = False
 
 
 class AppController(QObject):
@@ -38,13 +47,23 @@ class AppController(QObject):
     worktrees_ready = Signal(object)
     submodules_ready = Signal(object)
     conflict_versions_ready = Signal(object)
+    conflict_save_finished = Signal(object, bool, str)
     diagnostic_ready = Signal(str, str)
     diff_ready = Signal(str, str, bool)
+    document_ready = Signal(object, str)
+    document_failed = Signal(str)
+    comparison_ready = Signal(object)
+    comparison_file_ready = Signal(object, object, int)
+    comparison_file_failed = Signal(object, str, int, str)
+    merge_plan_ready = Signal(object)
+    merge_review_ready = Signal(object)
     busy_changed = Signal(bool)
     operation_started = Signal(str)
     operation_finished = Signal(str)
     operation_failed = Signal(str, str)
     conflict_detected = Signal(str, object)
+    settings_notice_changed = Signal(str)
+    settings_changed = Signal(object)
 
     _future_ready = Signal(object, object, str)
 
@@ -58,6 +77,9 @@ class AppController(QObject):
         super().__init__(parent)
         self.settings_store = settings_store
         self.settings = settings_store.load()
+        self._settings_save_notice = ""
+        self._projects_save_notice = ""
+        self._settings_validation_notice = ""
         self.recovery_root = settings_store.path.parent / "recovery"
         self.runner = GitRunner(git_executable=git_executable)
         self.task_queue = RepositoryTaskQueue()
@@ -65,6 +87,7 @@ class AppController(QObject):
         self._pending = 0
         self._pending_lock = threading.Lock()
         self._shutting_down = False
+        self._document_generation = 0
         self._future_ready.connect(self._finish_future)
 
     @property
@@ -104,6 +127,7 @@ class AppController(QObject):
         )
 
     def close_repository(self) -> None:
+        self.invalidate_document()
         self.repository = None
         self.repository_changed.emit(None)
 
@@ -118,6 +142,7 @@ class AppController(QObject):
                 branch=repository.current_branch(),
                 changes=tuple(repository.status()),
                 branches=tuple(repository.branches()),
+                merge_active=DocumentWorkflow(repository).merge_active(),
             )
 
         self._submit(
@@ -125,8 +150,102 @@ class AppController(QObject):
             load,
             write=False,
             label="正在刷新仓库",
-            on_success=self.snapshot_ready.emit,
+            on_success=lambda snapshot: self.snapshot_ready.emit(snapshot)
+            if self.repository is repository else None,
         )
+
+    def invalidate_document(self) -> None:
+        self._document_generation += 1
+
+    def load_document(self, path: str, *, staged: bool = False,
+                      original_path: str | None = None) -> None:
+        repository = self.repository
+        if repository is None:
+            return
+        self.invalidate_document()
+        generation = self._document_generation
+        def load():
+            try:
+                pair = DocumentWorkflow(repository).workspace(path, staged=staged, original_path=original_path)
+            except Exception as exc:
+                return None, str(exc) or type(exc).__name__
+            left, right = pair.left.splitlines(keepends=True), pair.right.splitlines(keepends=True)
+            if not pair.supported:
+                raw = pair.notice
+            elif (max(len(left), len(right)) > 2000
+                  or len(left) * len(right) > 250000
+                  or any(len(line) > 8192 for lines in (left, right) for line in lines)
+                  or len(pair.left.encode("utf-8")) + len(pair.right.encode("utf-8")) > 1024 * 1024):
+                raw = "文本大小或复杂度超过原始差异安全预算，请使用左右对比或外部工具。"
+            else:
+                raw = "".join(difflib.unified_diff(left, right, fromfile=pair.left_title,
+                                                  tofile=pair.right_title))
+            return pair, raw
+        def finished(result):
+            if self.repository is not repository or generation != self._document_generation:
+                return
+            if result[0] is None:
+                self.document_failed.emit(result[1])
+            else:
+                self.document_ready.emit(*result)
+        self._submit(repository.path, load, write=False, label="正在读取文件内容对比",
+                     on_success=finished)
+
+    def load_comparison(self, left: str, right: str) -> None:
+        self._document_task("正在读取版本变化", lambda flow: flow.compare_revisions(left, right),
+                            self.comparison_ready.emit)
+
+    def load_comparison_file(self, listing: ComparisonList, path: str, request_id: int = 0) -> None:
+        repository = self.repository
+        if repository is None:
+            self.comparison_file_failed.emit(listing, path, request_id, "仓库已关闭，请重新打开比较。")
+            return
+        def load():
+            try:
+                return DocumentWorkflow(repository).comparison_file(listing, path), ""
+            except Exception as exc:
+                return None, str(exc) or type(exc).__name__
+        def finished(result):
+            if self.repository is not repository:
+                return
+            pair, error = result
+            if pair is None:
+                self.comparison_file_failed.emit(listing, path, request_id, error)
+            else:
+                self.comparison_file_ready.emit(listing, pair, request_id)
+        self._submit(repository.path, load, write=False, label="正在读取版本文件", on_success=finished)
+
+    def preview_merge(self, source: str) -> None:
+        self._document_task("正在比较合并来源", lambda flow: flow.plan_merge(source),
+                            self.merge_plan_ready.emit)
+
+    def start_reviewed_merge(self, plan: MergePlan) -> None:
+        self._document_task("正在准备合并（不自动提交）", lambda flow: flow.start_merge(plan),
+                            lambda _: self.refresh(), write=True,
+                            success="合并命令已结束；请在工作区检查状态、处理冲突或确认结果。")
+
+    def review_merge(self) -> None:
+        self._document_task("正在读取实际合并结果", lambda flow: flow.merge_result(),
+                            self.merge_review_ready.emit)
+
+    def finish_reviewed_merge(self, listing: ComparisonList) -> None:
+        def finished(oid):
+            self.refresh()
+            self.load_comparison(listing.left_oid, oid)
+        self._document_task("正在完成已检查的合并", lambda flow: flow.finish_merge(listing),
+                            finished, write=True, success="合并已完成，未自动推送。")
+
+    def _document_task(self, label, function, callback, *, write=False, success=""):
+        repository = self.repository
+        if repository is None:
+            return
+        def execute():
+            if write and self.repository is not repository:
+                raise DocumentError("当前仓库已切换，未执行旧页面的操作。")
+            return function(DocumentWorkflow(repository))
+        self._submit(repository.path, execute,
+                     write=write, label=label, success_message=success,
+                     on_success=lambda result: callback(result) if self.repository is repository else None)
 
     def load_diff(self, path: str, *, staged: bool = False) -> None:
         repository = self.repository
@@ -222,11 +341,43 @@ class AppController(QObject):
             return
         self._submit(
             repository.path,
-            lambda: repository.conflict_versions(path),
+            lambda: self._load_safe_conflict(repository, path),
             write=False,
             label="正在读取冲突版本",
-            on_success=self.conflict_versions_ready.emit,
+            on_success=lambda session: self.conflict_versions_ready.emit(session)
+            if self.repository is repository else None,
         )
+
+    @staticmethod
+    def _load_safe_conflict(repository, path):
+        from clickgit.conflict_workflow import load_conflict
+        return load_conflict(repository, path)
+
+    def save_conflict_session(self, session, text: str, *, mark_resolved: bool):
+        from clickgit.conflict_workflow import save_conflict
+        repository = self.repository
+        if repository is None:
+            self.conflict_save_finished.emit(session, False, "当前仓库已关闭，编辑内容仍保留在窗口中。")
+            return
+        def execute():
+            try:
+                if self.repository is not repository:
+                    raise DocumentError("当前仓库已切换，未执行旧窗口的保存。")
+                save_conflict(repository, session, text, mark_resolved=mark_resolved)
+            except Exception as exc:
+                return False, str(exc) or "保存失败；请先复制保留编辑内容。"
+            return True, ""
+        def finished(result):
+            success, message = result
+            self.conflict_save_finished.emit(session, success, message)
+            if success:
+                self.operation_finished.emit("已保存并暂存，尚未完成合并。" if mark_resolved
+                                             else "草稿已保存，尚未标记冲突解决。")
+                if self.repository is repository:
+                    self.refresh()
+        self._submit(repository.path, execute, write=True,
+                     label="正在保存冲突结果" if mark_resolved else "正在保存冲突草稿",
+                     on_success=finished)
 
     def stage(self, paths: list[str]) -> None:
         self._run_write("正在暂存文件", lambda repo: repo.stage(paths))
@@ -238,9 +389,13 @@ class AppController(QObject):
         self._run_write("正在丢弃文件修改", lambda repo: repo.restore(paths))
 
     def commit(self, message: str, *, amend: bool = False) -> None:
+        def commit_checked(repo):
+            if DocumentWorkflow(repo).merge_active():
+                raise DocumentError("合并进行中，请使用“检查结果并完成合并”，不能绕过结果确认直接提交。")
+            return repo.commit(message, amend=amend)
         self._run_write(
             "正在提交",
-            lambda repo: repo.commit(message, amend=amend),
+            commit_checked,
             success_message="提交完成",
         )
 
@@ -340,13 +495,13 @@ class AppController(QObject):
         )
 
     def abort_merge(self) -> None:
-        self._run_write("正在放弃合并", lambda repo: repo.abort_merge())
+        self._run_write("正在放弃合并", lambda repo: DocumentWorkflow(repo).abort_merge())
 
     def abort_rebase(self) -> None:
         self._run_write("正在放弃变基", lambda repo: repo.abort_rebase())
 
     def continue_merge(self) -> None:
-        self._run_write("正在继续合并", lambda repo: repo.continue_merge())
+        self.review_merge()
 
     def continue_rebase(self) -> None:
         self._run_write("正在继续变基", lambda repo: repo.continue_rebase())
@@ -506,8 +661,41 @@ class AppController(QObject):
         )
 
     def update_settings(self, settings: AppSettings) -> None:
+        try:
+            self.settings_store.validate(settings)
+        except SettingsValidationError as error:
+            self._settings_validation_notice = str(error) + "；本次未应用，请修正后重试。"
+            self.settings_notice_changed.emit(self.settings_notice)
+            return
+        self._settings_validation_notice = ""
         self.settings = settings
-        self.settings_store.save(settings)
+        self.settings_changed.emit(settings)
+        try:
+            self.settings_store.save(settings)
+        except ProjectsSaveError:
+            self._settings_save_notice = ""
+            self._projects_save_notice = (
+                "设置已保存，但项目记录未保存；"
+                "请检查数据目录权限和磁盘空间，或查看上方只读保护原因。"
+            )
+        except (OSError, ValueError):
+            self._settings_save_notice = (
+                "本次设置已保留在当前会话，但未保存设置；"
+                "请检查数据目录权限和磁盘空间后，在设置中再次保存。"
+            )
+        else:
+            self._settings_save_notice = ""
+            self._projects_save_notice = ""
+        self.settings_notice_changed.emit(self.settings_notice)
+
+    @property
+    def settings_notice(self) -> str:
+        return "\n".join(item for item in (
+            *self.settings_store.warnings,
+            self._settings_save_notice,
+            self._projects_save_notice,
+            self._settings_validation_notice,
+        ) if item)
 
     def shutdown(self) -> None:
         if self._shutting_down:
@@ -523,8 +711,17 @@ class AppController(QObject):
             for item in self.settings.recent_repositories
             if item != normalized
         ]
-        self.settings.recent_repositories = [normalized, *recent][:12]
-        self.settings_store.save(self.settings)
+        self.settings.recent_repositories = [normalized, *recent][:MAX_RECENT_PROJECTS]
+        try:
+            self.settings_store.save_projects(self.settings)
+        except (OSError, ValueError):
+            self._projects_save_notice = (
+                "最近项目记录未保存，但项目已打开，可以继续操作；"
+                "请检查数据目录权限和磁盘空间。"
+            )
+        else:
+            self._projects_save_notice = ""
+        self.settings_notice_changed.emit(self.settings_notice)
         self.repository_changed.emit(repository.path)
         self.refresh()
 
@@ -616,12 +813,16 @@ class AppController(QObject):
             if success_message:
                 self.operation_finished.emit(success_message)
         except OperationConflict as exc:
+            from clickgit.diagnostics import log_exception
+            log_exception(type(exc), exc, exc.__traceback__, event="operation_failed")
             self.conflict_detected.emit(exc.operation, exc.result)
             self.operation_failed.emit(
                 "操作产生冲突",
                 "请在“工作区”中处理冲突文件，然后继续或放弃当前操作。",
             )
         except Exception as exc:
+            from clickgit.diagnostics import log_exception
+            log_exception(type(exc), exc, exc.__traceback__, event="operation_failed")
             self.operation_failed.emit(
                 "操作失败",
                 str(exc) or exc.__class__.__name__,

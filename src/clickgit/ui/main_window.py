@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from clickgit.app import AppController, RepositorySnapshot
+from clickgit.document_workflow import TextComparison
 from clickgit.models import (
     Branch,
     ChangeKind,
@@ -52,6 +53,10 @@ from clickgit.models import (
 )
 from clickgit.recovery import RecoveryPoint
 from clickgit.ui.conflict_editor import ConflictEditorDialog
+from clickgit.ui.diff_viewer import DiffViewer
+from clickgit.ui.html_review import is_html_path, open_html_review
+from clickgit.ui.document_dialogs import DocumentComparisonDialog, ExpandedDiffDialog
+from clickgit.ui.themes import ThemeManager, theme_values
 from clickgit.ui.dialogs import (
     BranchDialog,
     CleanPreviewDialog,
@@ -68,17 +73,23 @@ from clickgit.ui.dialogs import (
 FILE_ROLE = Qt.ItemDataRole.UserRole
 STAGED_ROLE = Qt.ItemDataRole.UserRole + 1
 CONFLICT_ROLE = Qt.ItemDataRole.UserRole + 2
+ORIGINAL_PATH_ROLE = Qt.ItemDataRole.UserRole + 3
 
 
 class MainWindow(QMainWindow):
     def __init__(self, controller: AppController) -> None:
         super().__init__()
         self.controller = controller
+        self.theme_manager = ThemeManager(QApplication.instance())
+        self.theme_manager.apply(self.controller.settings)
         self.repository_path: Path | None = None
         self._busy = False
+        self._merge_active = False
+        self._current_document = None
         self._build_window()
         self._connect_controller()
         self._show_empty_state()
+        self._show_settings_notice(self.controller.settings_notice)
 
     def _build_window(self) -> None:
         self.setWindowTitle("ClickGit")
@@ -92,6 +103,13 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(self._build_repository_bar())
+        self.settings_notice_label = QLabel()
+        self.settings_notice_label.setObjectName("settingsNotice")
+        self.settings_notice_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.settings_notice_label.setWordWrap(True)
+        self.settings_notice_label.setContentsMargins(16, 8, 16, 8)
+        self.settings_notice_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        root.addWidget(self.settings_notice_label)
 
         body = QSplitter(Qt.Orientation.Horizontal)
         self.navigation = QListWidget()
@@ -256,12 +274,27 @@ class MainWindow(QMainWindow):
         self.workspace_summary = QLabel("0 个文件有变化")
         self.workspace_summary.setObjectName("mutedLabel")
         self.conflict_label = QLabel("")
-        self.conflict_label.setStyleSheet("color: #a32424; font-weight: 600;")
+        self.conflict_label.setObjectName("dangerLabel")
         title_row.addWidget(title)
         title_row.addWidget(self.workspace_summary)
         title_row.addWidget(self.conflict_label)
         title_row.addStretch(1)
         layout.addLayout(title_row)
+
+        self.merge_bar = QWidget()
+        merge_row = QHBoxLayout(self.merge_bar)
+        merge_row.setContentsMargins(0, 0, 0, 0)
+        self.merge_status = QLabel("合并尚未完成")
+        self.merge_status.setWordWrap(True)
+        self.merge_review_button = QPushButton("检查结果并完成合并")
+        self.merge_review_button.clicked.connect(self.controller.review_merge)
+        self.merge_abort_button = QPushButton("取消本次合并")
+        self.merge_abort_button.clicked.connect(self._abort_merge)
+        merge_row.addWidget(self.merge_status, 1)
+        merge_row.addWidget(self.merge_review_button)
+        merge_row.addWidget(self.merge_abort_button)
+        self.merge_bar.hide()
+        layout.addWidget(self.merge_bar)
 
         workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
         file_panel = QWidget()
@@ -293,12 +326,17 @@ class MainWindow(QMainWindow):
         file_actions.addStretch(1)
         file_layout.addWidget(self.change_tree, 1)
         file_layout.addLayout(file_actions)
+        self.resolve_button = QPushButton("解决所选文件冲突…")
+        self.resolve_button.setEnabled(False)
+        self.resolve_button.clicked.connect(self._resolve_selected_conflict)
+        file_layout.addWidget(self.resolve_button)
         workspace_splitter.addWidget(file_panel)
 
         diff_panel = QWidget()
         diff_layout = QVBoxLayout(diff_panel)
         diff_layout.setContentsMargins(0, 0, 0, 0)
         self.diff_title = QLabel("选择文件查看差异")
+        self.diff_title.setTextFormat(Qt.TextFormat.PlainText)
         self.diff_title.setObjectName("mutedLabel")
         self.diff_editor = QPlainTextEdit()
         self.diff_editor.setReadOnly(True)
@@ -307,12 +345,27 @@ class MainWindow(QMainWindow):
         fixed_font.setStyleHint(QFont.StyleHint.Monospace)
         self.diff_editor.setFont(fixed_font)
         diff_layout.addWidget(self.diff_title)
-        diff_layout.addWidget(self.diff_editor, 1)
+        self.document_viewer = DiffViewer()
+        self.diff_tabs = QTabWidget()
+        self.diff_tabs.addTab(self.document_viewer, "左右对比")
+        self.diff_tabs.addTab(self.diff_editor, "原始差异")
+        self.zoom_diff_button = QPushButton("放大对比")
+        self.zoom_diff_button.setEnabled(False)
+        self.zoom_diff_button.clicked.connect(self._expand_document)
+        self.diff_tabs.setCornerWidget(self.zoom_diff_button)
+        diff_layout.addWidget(self.diff_tabs, 1)
+        self.html_review_button = QPushButton("HTML 需求对比 / 页面预览")
+        self.html_review_button.setEnabled(False)
+        self.html_review_button.setVisible(False)
+        self.html_review_button.clicked.connect(self._review_html)
+        diff_layout.addWidget(self.html_review_button)
         workspace_splitter.addWidget(diff_panel)
-        workspace_splitter.setSizes([440, 760])
+        workspace_splitter.setSizes([300, 900])
         layout.addWidget(workspace_splitter, 1)
 
-        commit_row = QHBoxLayout()
+        self.commit_form = QWidget()
+        commit_row = QHBoxLayout(self.commit_form)
+        commit_row.setContentsMargins(0, 0, 0, 0)
         self.commit_message = QPlainTextEdit()
         self.commit_message.setPlaceholderText("填写本次提交说明")
         self.commit_message.setMaximumHeight(88)
@@ -327,7 +380,7 @@ class MainWindow(QMainWindow):
         options.addStretch(1)
         commit_row.addWidget(self.commit_message, 1)
         commit_row.addLayout(options)
-        layout.addLayout(commit_row)
+        layout.addWidget(self.commit_form)
         return page
 
     def _build_history_page(self) -> QWidget:
@@ -350,6 +403,12 @@ class MainWindow(QMainWindow):
         top.addStretch(1)
         top.addWidget(self.history_search)
         top.addWidget(search_button)
+        self.history_compare_button = QPushButton("查看内容变化")
+        self.history_compare_button.clicked.connect(self._compare_history_commit)
+        top.addWidget(self.history_compare_button)
+        compare_two = QPushButton("比较两个版本…")
+        compare_two.clicked.connect(self._compare_two_revisions)
+        top.addWidget(compare_two)
         layout.addLayout(top)
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.history_table = QTableWidget(0, 5)
@@ -386,7 +445,7 @@ class MainWindow(QMainWindow):
         create.clicked.connect(self._create_branch)
         checkout = QPushButton("切换")
         checkout.clicked.connect(self._checkout_branch)
-        merge = QPushButton("合并到当前分支")
+        merge = QPushButton("比较并合并到当前分支")
         merge.clicked.connect(self._merge_branch)
         rebase = QPushButton("将当前分支变基到此")
         rebase.clicked.connect(self._rebase_branch)
@@ -551,7 +610,7 @@ class MainWindow(QMainWindow):
         warning = QLabel(
             "这些操作会重写提交历史或删除内容，执行前会再次确认并创建恢复点。"
         )
-        warning.setStyleSheet("color: #8a4b16;")
+        warning.setObjectName("warningLabel")
         layout.addWidget(title)
         layout.addWidget(warning)
 
@@ -708,9 +767,13 @@ class MainWindow(QMainWindow):
         edit = QPushButton("打开设置")
         edit.setMaximumWidth(140)
         edit.clicked.connect(self._edit_settings)
+        self.diagnostics_button = QPushButton("查看 / 复制诊断信息")
+        self.diagnostics_button.setMaximumWidth(200)
+        self.diagnostics_button.clicked.connect(self._show_diagnostics)
         layout.addWidget(title)
         layout.addWidget(self.settings_summary)
         layout.addWidget(edit)
+        layout.addWidget(self.diagnostics_button)
         layout.addStretch(1)
         self._refresh_settings_summary()
         return page
@@ -749,14 +812,50 @@ class MainWindow(QMainWindow):
         )
         self.controller.diagnostic_ready.connect(self._show_diagnostic)
         self.controller.diff_ready.connect(self._apply_diff)
+        self.controller.document_ready.connect(self._apply_document)
+        self.controller.document_failed.connect(self._document_failed)
+        self.controller.comparison_ready.connect(self._show_comparison)
+        self.controller.merge_plan_ready.connect(self._show_merge_plan)
+        self.controller.merge_review_ready.connect(self._show_merge_review)
         self.controller.busy_changed.connect(self._set_busy)
         self.controller.operation_started.connect(self.task_label.setText)
         self.controller.operation_finished.connect(self._operation_finished)
         self.controller.operation_failed.connect(self._show_error)
         self.controller.conflict_detected.connect(self._show_conflict_notice)
+        self.controller.settings_notice_changed.connect(self._show_settings_notice)
+        self.controller.settings_changed.connect(self._apply_settings)
+        self.theme_manager.changed.connect(self._refresh_theme_colors)
+
+    @Slot(object)
+    def _apply_settings(self, settings) -> None:
+        self.theme_manager.apply(settings)
+        self._refresh_settings_summary()
+
+    @Slot(str)
+    def _refresh_theme_colors(self, theme: str) -> None:
+        color = QColor(theme_values(theme)["danger"])
+        for root_index in range(self.change_tree.topLevelItemCount()):
+            root = self.change_tree.topLevelItem(root_index)
+            for index in range(root.childCount()):
+                item = root.child(index)
+                if item.data(0, CONFLICT_ROLE):
+                    item.setForeground(0, color)
+                    item.setForeground(1, color)
+
+    @Slot(str)
+    def _show_settings_notice(self, message: str) -> None:
+        self.settings_notice_label.setText(message)
+        self.settings_notice_label.setVisible(bool(message))
 
     @Slot(object)
     def _repository_changed(self, path: Path | None) -> None:
+        self._populate_changes(())
+        self.merge_bar.hide()
+        self._merge_active = False
+        self.commit_form.show()
+        self.commit_message.clear()
+        self.branch_badge.setText("读取中…")
+        self.status_branch.clear()
         if path is None:
             self._show_empty_state()
             return
@@ -765,6 +864,9 @@ class MainWindow(QMainWindow):
         self.repository_path_label.setText(str(self.repository_path))
         self.content_host.setCurrentIndex(1)
         self.navigation.setEnabled(True)
+        for index in range(1, 8):
+            item = self.navigation.item(index)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
         self.navigation.setCurrentRow(0)
         self._set_repository_actions_enabled(True)
 
@@ -775,6 +877,13 @@ class MainWindow(QMainWindow):
         self.status_branch.setText(f"分支：{snapshot.branch}")
         self.workspace_summary.setText(f"{len(snapshot.changes)} 个文件有变化")
         conflicts = sum(1 for change in snapshot.changes if change.conflicted)
+        self.merge_bar.setVisible(snapshot.merge_active)
+        self.merge_status.setText(
+            f"合并待完成 · {conflicts} 个冲突文件。先解决冲突，再检查最终结果。"
+            if conflicts else "合并待完成 · 请检查实际结果，再确认提交。")
+        self.merge_review_button.setEnabled(not conflicts and not self._busy)
+        self._merge_active = snapshot.merge_active
+        self.commit_form.setVisible(not snapshot.merge_active)
         self.conflict_label.setText(
             f"{conflicts} 个冲突待解决" if conflicts else ""
         )
@@ -951,13 +1060,87 @@ class MainWindow(QMainWindow):
             ours_text=versions.ours,
             theirs_text=versions.theirs,
             result_text=versions.result,
+            allowed=versions.allowed,
+            reason=versions.reason,
+            defer_save=True,
             parent=self,
         )
+        def save(mark_resolved):
+            dialog.set_saving(True)
+            self.controller.save_conflict_session(versions, dialog.result_text(), mark_resolved=mark_resolved)
+        def finished(session, success, message):
+            if session is not versions:
+                return
+            dialog.set_saving(False)
+            if success:
+                dialog.accept()
+            else:
+                QMessageBox.warning(dialog, "未保存成功，编辑内容仍保留", message)
+        dialog.save_requested.connect(save)
+        self.controller.conflict_save_finished.connect(finished)
+        try:
+            dialog.exec()
+        finally:
+            self.controller.conflict_save_finished.disconnect(finished)
+        dialog.deleteLater()
+
+    @Slot(object, str)
+    def _apply_document(self, pair: TextComparison, raw: str) -> None:
+        self._current_document = pair
+        self.html_review_button.setVisible(is_html_path(pair.path))
+        self.html_review_button.setEnabled(pair.supported and is_html_path(pair.path))
+        self.zoom_diff_button.setEnabled(pair.supported)
+        self.diff_title.setText(pair.path)
+        self.diff_editor.setPlainText(raw)
+        self.document_viewer.set_comparison(pair.left, pair.right, pair.left_title, pair.right_title, pair.notice)
+        if not pair.supported:
+            self.document_viewer.clear(pair.notice or "此文件不支持文本对比。")
+
+    @Slot(str)
+    def _document_failed(self, message: str) -> None:
+        self._current_document = None
+        self.html_review_button.setEnabled(False)
+        self.zoom_diff_button.setEnabled(False)
+        self.diff_editor.clear()
+        self.document_viewer.clear(f"读取失败：{message}。可重新选择文件重试。")
+
+    def _review_html(self) -> None:
+        if self._current_document is not None:
+            open_html_review(self._current_document, self)
+
+    def _expand_document(self) -> None:
+        if self._current_document is None or not self._current_document.supported:
+            return
+        dialog = ExpandedDiffDialog(self._current_document, self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    @Slot(object)
+    def _show_comparison(self, listing) -> None:
+        dialog = DocumentComparisonDialog(self.controller, listing, parent=self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    @Slot(object)
+    def _show_merge_plan(self, plan) -> None:
+        dialog = DocumentComparisonDialog(
+            self.controller, plan.comparison, parent=self, action_text="开始合并（先不提交）",
+            notice=f"当前分支 {plan.current_branch} ← 合入 {plan.source_name}。"
+            "这里是两个分支的内容差异，不是预测合并结果。"
+            "开始后将修改工作文件；即使可快进也停在确认阶段，完成时生成合并提交。"
+            "有未提交文件或不支持的文本/二进制变化时拒绝开始，不自动丢弃或贮藏。")
         if dialog.exec():
-            self.controller.resolve_conflict(
-                versions.path,
-                dialog.result_text(),
-            )
+            self.navigation.setCurrentRow(0)
+            self.controller.start_reviewed_merge(plan)
+        dialog.deleteLater()
+
+    @Slot(object)
+    def _show_merge_review(self, listing) -> None:
+        dialog = DocumentComparisonDialog(self.controller, listing, parent=self,
+                                          action_text="确认完成合并")
+        if dialog.exec():
+            self.controller.finish_reviewed_merge(listing)
+        dialog.deleteLater()
 
     @Slot(str, str)
     def _show_diagnostic(self, title: str, text: str) -> None:
@@ -991,6 +1174,15 @@ class MainWindow(QMainWindow):
         self.push_action.setEnabled(
             not busy and self.repository_path is not None
         )
+        self.merge_abort_button.setEnabled(not busy)
+        conflicts = any(bool(item.data(0, CONFLICT_ROLE))
+                        for root_index in range(self.change_tree.topLevelItemCount())
+                        for item in (self.change_tree.topLevelItem(root_index).child(i)
+                                     for i in range(self.change_tree.topLevelItem(root_index).childCount())))
+        self.merge_review_button.setEnabled(not busy and not conflicts)
+        selected = self._selected_change_items()
+        self.resolve_button.setEnabled(not busy and bool(selected)
+                                       and bool(selected[0].data(0, CONFLICT_ROLE)))
         self._update_commit_enabled()
 
     @Slot(str)
@@ -1015,12 +1207,25 @@ class MainWindow(QMainWindow):
         self.conflict_label.setText("操作产生冲突，请处理后继续")
 
     def _show_empty_state(self) -> None:
+        self.controller.invalidate_document()
+        self.html_review_button.setEnabled(False)
+        self.document_viewer.clear()
+        self.diff_editor.clear()
+        self.merge_bar.hide()
+        self._merge_active = False
+        self._current_document = None
+        self.zoom_diff_button.setEnabled(False)
+        self.commit_form.show()
         self.repository_path = None
         self.repository_name.setText("未打开仓库")
         self.repository_path_label.setText("请选择本地仓库或克隆远程仓库")
         self.branch_badge.setText("无分支")
         self.status_branch.setText("")
-        self.navigation.setEnabled(False)
+        self.navigation.setEnabled(True)
+        for index in range(1, 8):
+            item = self.navigation.item(index)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        self.navigation.setCurrentRow(0)
         self.content_host.setCurrentIndex(0)
         self.recent_repositories.clear()
         for path in self.controller.settings.recent_repositories:
@@ -1041,8 +1246,12 @@ class MainWindow(QMainWindow):
         self.commit_button.setEnabled(False)
 
     def _change_page(self, row: int) -> None:
-        if row < 0 or self.repository_path is None:
+        if row < 0:
             return
+        if self.repository_path is None and row != 8:
+            self.content_host.setCurrentIndex(0)
+            return
+        self.content_host.setCurrentIndex(1)
         self.pages.setCurrentIndex(row)
         if row == 1:
             self.controller.load_history()
@@ -1060,6 +1269,15 @@ class MainWindow(QMainWindow):
             self.controller.load_submodules()
 
     def _populate_changes(self, changes: tuple[FileChange, ...]) -> None:
+        self._current_document = None
+        self.html_review_button.setEnabled(False)
+        self.html_review_button.hide()
+        self.zoom_diff_button.setEnabled(False)
+        self.controller.invalidate_document()
+        self.diff_title.setText("选择文件查看内容对比；冲突文件可双击编辑")
+        self.diff_editor.clear()
+        self.document_viewer.clear()
+        self.resolve_button.setEnabled(False)
         self.change_tree.clear()
         unstaged_root = QTreeWidgetItem(["工作区修改", ""])
         staged_root = QTreeWidgetItem(["已暂存", ""])
@@ -1074,10 +1292,12 @@ class MainWindow(QMainWindow):
             item.setData(0, FILE_ROLE, change.path)
             item.setData(0, STAGED_ROLE, change.staged)
             item.setData(0, CONFLICT_ROLE, change.conflicted)
+            item.setData(0, ORIGINAL_PATH_ROLE, change.original_path)
             item.setToolTip(1, change.path)
             if change.conflicted:
-                item.setForeground(0, QColor("#a32424"))
-                item.setForeground(1, QColor("#a32424"))
+                color = QColor(theme_values(self.theme_manager.effective_theme)["danger"])
+                item.setForeground(0, color)
+                item.setForeground(1, color)
             parent.addChild(item)
         unstaged_root.setText(0, f"工作区修改（{unstaged_root.childCount()}）")
         staged_root.setText(0, f"已暂存（{staged_root.childCount()}）")
@@ -1103,14 +1323,32 @@ class MainWindow(QMainWindow):
         self.branch_table.horizontalHeader().setStretchLastSection(True)
 
     def _preview_selected_file(self) -> None:
+        self._current_document = None
+        self.zoom_diff_button.setEnabled(False)
+        self.controller.invalidate_document()
         selected = self._selected_change_items()
+        self.resolve_button.setEnabled(
+            bool(selected) and bool(selected[0].data(0, CONFLICT_ROLE)) and not self._busy)
         if not selected:
+            self.document_viewer.clear()
+            self.diff_editor.clear()
             return
         item = selected[0]
-        self.controller.load_diff(
+        self.document_viewer.clear("正在读取内容…")
+        self.diff_editor.clear()
+        if item.data(0, CONFLICT_ROLE):
+            self.document_viewer.clear("该文件存在冲突。双击文件或点击“解决所选文件冲突”逐块编辑。")
+            return
+        self.controller.load_document(
             str(item.data(0, FILE_ROLE)),
             staged=bool(item.data(0, STAGED_ROLE)),
+            original_path=item.data(0, ORIGINAL_PATH_ROLE),
         )
+
+    def _resolve_selected_conflict(self) -> None:
+        selected = self._selected_change_items()
+        if selected:
+            self._open_conflict_editor_for_item(selected[0], 0)
 
     def _open_conflict_editor_for_item(
         self,
@@ -1181,6 +1419,7 @@ class MainWindow(QMainWindow):
             and not self._busy
             and has_message
             and has_staged
+            and not self._merge_active
         )
 
     def _tree_has_staged_files(self) -> bool:
@@ -1206,6 +1445,31 @@ class MainWindow(QMainWindow):
         ]
         self.commit_details.setPlainText("\n".join(details))
 
+    def _compare_history_commit(self) -> None:
+        row = self.history_table.currentRow()
+        item = self.history_table.item(row, 0) if row >= 0 else None
+        commit = item.data(FILE_ROLE) if item else None
+        if not isinstance(commit, Commit):
+            self.statusBar().showMessage("请先选择一条提交记录。", 4000)
+            return
+        parent = commit.parents[0] if commit.parents else ""
+        if len(commit.parents) > 1:
+            options = [f"{index + 1} · {oid}" for index, oid in enumerate(commit.parents)]
+            selected, ok = QInputDialog.getItem(
+                self, "选择合并前的基线", "第一个父版本通常是接收合并的原分支：", options, 0, False)
+            if not ok:
+                return
+            parent = commit.parents[options.index(selected)]
+        self.controller.load_comparison(parent, commit.oid)
+
+    def _compare_two_revisions(self) -> None:
+        left, ok = QInputDialog.getText(self, "比较两个版本", "原版本（分支名或提交哈希）：")
+        if not ok or not left.strip():
+            return
+        right, ok = QInputDialog.getText(self, "比较两个版本", "目标版本（分支名或提交哈希）：")
+        if ok and right.strip():
+            self.controller.load_comparison(left.strip(), right.strip())
+
     def _selected_branch(self) -> Branch | None:
         row = self.branch_table.currentRow()
         item = self.branch_table.item(row, 1) if row >= 0 else None
@@ -1225,12 +1489,8 @@ class MainWindow(QMainWindow):
 
     def _merge_branch(self) -> None:
         branch = self._selected_branch()
-        if branch and not branch.current and ConfirmDialog.ask(
-            self,
-            title="合并分支",
-            text=f"将“{branch.name}”合并到当前分支？",
-        ):
-            self.controller.merge_branch(branch.name)
+        if branch and not branch.current:
+            self.controller.preview_merge(branch.name)
 
     def _rebase_branch(self) -> None:
         branch = self._selected_branch()
@@ -1491,16 +1751,22 @@ class MainWindow(QMainWindow):
             )
             self._refresh_settings_summary()
 
+    def _show_diagnostics(self) -> None:
+        from clickgit.ui.diagnostics_dialog import show_diagnostics
+        show_diagnostics(self)
+
     def _refresh_settings_summary(self) -> None:
         settings = self.controller.settings
         theme_names = {
             "system": "跟随系统",
-            "light": "浅色",
-            "dark": "深色",
+            "light": "明亮白色",
+            "dark": "经典深色",
+            "tech": "极光科技",
         }
         editor = settings.external_editor or "未设置"
         self.settings_summary.setText(
-            f"界面主题：{theme_names.get(settings.theme, '跟随系统')}\n"
+            f"界面主题：{theme_names.get(settings.theme, '跟随系统')}（已应用）\n"
+            f"字号：{settings.font_size_px} px · 密度：{'舒适' if settings.density == 'comfortable' else '紧凑'}\n"
             f"外部编辑器：{editor}\n"
             f"最近仓库：{len(settings.recent_repositories)} 个"
         )
@@ -1553,5 +1819,8 @@ class MainWindow(QMainWindow):
         return "操作未完成。可展开“详细信息”查看技术原因。"
 
     def closeEvent(self, event) -> None:
+        from clickgit.ui.preview_session import stop_all_previews
+        stop_all_previews()
         self.controller.shutdown()
+        self.theme_manager.deleteLater()
         super().closeEvent(event)

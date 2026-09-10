@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -21,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from clickgit.models import AppSettings
+from clickgit.defaults import UI_FONT_SIZES_PX
+from clickgit.settings import SettingsStore, SettingsValidationError
 
 
 class CloneDialog(QDialog):
@@ -195,15 +198,28 @@ class RemoteDialog(QDialog):
 class SettingsDialog(QDialog):
     def __init__(self, settings: AppSettings, parent=None) -> None:
         super().__init__(parent)
+        self._original_settings = settings
         self.setWindowTitle("ClickGit 设置")
         self.setMinimumWidth(500)
         layout = QFormLayout(self)
         self.theme_combo = QComboBox()
         self.theme_combo.addItem("跟随系统", "system")
-        self.theme_combo.addItem("浅色", "light")
-        self.theme_combo.addItem("深色", "dark")
+        self.theme_combo.addItem("明亮白色", "light")
+        self.theme_combo.addItem("经典深色", "dark")
+        self.theme_combo.addItem("极光科技", "tech")
+        self.theme_combo.setToolTip(
+            "保存后立即应用到整个界面，无需重启；跟随系统会自动响应系统深浅色变化。"
+        )
         index = self.theme_combo.findData(settings.theme)
         self.theme_combo.setCurrentIndex(max(index, 0))
+        self.font_size_combo = QComboBox()
+        for size in UI_FONT_SIZES_PX:
+            self.font_size_combo.addItem(f"{size} px", size)
+        self.font_size_combo.setCurrentIndex(self.font_size_combo.findData(settings.font_size_px))
+        self.density_combo = QComboBox()
+        self.density_combo.addItem("舒适 · 更宽松的操作空间", "comfortable")
+        self.density_combo.addItem("紧凑 · 显示更多内容", "compact")
+        self.density_combo.setCurrentIndex(self.density_combo.findData(settings.density))
         self.editor_edit = QLineEdit(settings.external_editor)
         browse = QPushButton("浏览...")
         browse.clicked.connect(self._browse_editor)
@@ -211,7 +227,13 @@ class SettingsDialog(QDialog):
         row.addWidget(self.editor_edit, 1)
         row.addWidget(browse)
         layout.addRow("界面主题", self.theme_combo)
+        layout.addRow("界面字号", self.font_size_combo)
+        layout.addRow("显示密度", self.density_combo)
         layout.addRow("外部编辑器", row)
+        self.validation_label = QLabel()
+        self.validation_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.validation_label.setWordWrap(True)
+        layout.addRow(self.validation_label)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
@@ -223,12 +245,24 @@ class SettingsDialog(QDialog):
         layout.addRow(buttons)
 
     def build_settings(self, original: AppSettings) -> AppSettings:
-        return AppSettings(
+        return replace(
+            original,
             recent_repositories=list(original.recent_repositories),
             favorite_repositories=list(original.favorite_repositories),
             theme=str(self.theme_combo.currentData()),
+            font_size_px=int(self.font_size_combo.currentData()),
+            density=str(self.density_combo.currentData()),
             external_editor=self.editor_edit.text().strip(),
         )
+
+    def accept(self) -> None:
+        try:
+            SettingsStore.validate(self.build_settings(self._original_settings))
+        except SettingsValidationError as error:
+            self.validation_label.setText(str(error))
+            return
+        self.validation_label.clear()
+        super().accept()
 
     def _browse_editor(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -285,7 +319,7 @@ class CleanPreviewDialog(QDialog):
         warning = QLabel(
             "选中的文件不会直接删除，而是移入 ClickGit 恢复中心。"
         )
-        warning.setStyleSheet("color: #8a4b16;")
+        warning.setObjectName("warningLabel")
         self.path_list = QListWidget()
         for path in paths:
             item = QListWidgetItem(path)

@@ -14,6 +14,12 @@
   #define SourceRoot ".."
 #endif
 
+; Native dark/polar styles require 6.6; WizardBackColor requires 6.7.
+; Verified with Inno Setup 6.7.3. Fail clearly rather than silently going light.
+#if Ver < EncodeVer(6, 7, 0)
+  #error ClickGit requires Inno Setup 6.7 or newer for the native dark wizard.
+#endif
+
 [Setup]
 AppId={{4B747C71-74E9-46B7-B869-02072854766C}
 AppName=ClickGit
@@ -29,8 +35,18 @@ OutputDir={#OutputDir}
 OutputBaseFilename=ClickGit-Windows-x64-Setup
 Compression=lzma2
 SolidCompression=yes
-WizardStyle=modern
+; Keep native controls, license text and selection states; no skinning DLLs.
+WizardStyle=modern dark polar
+WizardBackColor=#080F20
+WizardImageFile={#SourceRoot}\src\clickgit\resources\wizard-panel.png
+WizardSmallImageFile={#SourceRoot}\src\clickgit\resources\wizard-small.png
+WizardImageBackColor=#080F20
+WizardSmallImageBackColor=#080F20
+SetupIconFile={#SourceRoot}\src\clickgit\resources\clickgit.ico
+DisableWelcomePage=no
+LicenseFile={#SourceRoot}\LICENSE
 UninstallDisplayName=ClickGit
+UninstallDisplayIcon={app}\ClickGit.exe
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -45,9 +61,9 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Source: "{#SourceRoot}\installer\Languages\LICENSE"; DestDir: "{app}\licenses"; DestName: "Inno-Setup-Chinese-Translation-LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\ClickGit"; Filename: "{app}\ClickGit.exe"; WorkingDir: "{app}"
-Name: "{group}\卸载 ClickGit"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\ClickGit"; Filename: "{app}\ClickGit.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\ClickGit"; Filename: "{app}\ClickGit.exe"; WorkingDir: "{app}"; IconFilename: "{app}\ClickGit.exe"; AppUserModelID: "ljy-codes.ClickGit"
+Name: "{group}\卸载 ClickGit"; Filename: "{uninstallexe}"; IconFilename: "{app}\ClickGit.exe"
+Name: "{autodesktop}\ClickGit"; Filename: "{app}\ClickGit.exe"; WorkingDir: "{app}"; IconFilename: "{app}\ClickGit.exe"; AppUserModelID: "ljy-codes.ClickGit"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\ClickGit.exe"; Description: "启动 ClickGit"; Flags: nowait postinstall skipifsilent

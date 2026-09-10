@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 import unittest
 from html.parser import HTMLParser
@@ -146,6 +147,23 @@ def _parse_visible_html(path: Path) -> VisibleHTMLParser:
 
 
 class ProjectMetadataTests(unittest.TestCase):
+    def test_user_delivery_documents_share_dark_theme(self) -> None:
+        themes = []
+        for name in ("安装说明.html", "产品介绍.html"):
+            with self.subTest(document=name):
+                html = (PROJECT_ROOT / "docs" / "user" / name).read_text(
+                    encoding="utf-8"
+                )
+                self.assertTrue("color-scheme: dark;" in html, name)
+                self.assertNotIn("color-scheme: light;", html)
+                tokens = dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{6});", html))
+                for key in ("background", "surface", "surface-raised"):
+                    color = tokens[key].lstrip("#")
+                    self.assertLess(max(int(color[i:i + 2], 16) for i in (0, 2, 4)), 80)
+                themes.append(tokens)
+        if len(themes) == 2:
+            self.assertEqual(themes[0], themes[1])
+
     def test_visible_html_parser_ignores_non_visible_content(self) -> None:
         parser = VisibleHTMLParser()
         parser.feed(

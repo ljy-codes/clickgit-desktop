@@ -6,15 +6,23 @@
   <title>ClickGit 产品介绍</title>
   <style>
     :root {
-      color-scheme: light;
-      --background: #f5f6f7;
-      --surface: #ffffff;
-      --text: #19222c;
-      --muted: #5d6873;
-      --border: #d8dee4;
-      --accent: #146c94;
-      --accent-soft: #e8f3f7;
-      --success: #26734d;
+      color-scheme: dark;
+      --background: #11151c;
+      --surface: #1a202b;
+      --surface-raised: #232c3a;
+      --text: #e6edf5;
+      --muted: #a9b6c7;
+      --border: #39465a;
+      --accent: #7abaff;
+      --accent-soft: #1c3048;
+      --on-accent: #101923;
+      --warning: #f3cc78;
+      --warning-soft: #392e1c;
+      --success: #8bd6ad;
+      --success-soft: #1b352b;
+      --success-border: #3c7059;
+      --danger: #f2a0a0;
+      --danger-soft: #3c252c;
       font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
     }
 
@@ -78,9 +86,9 @@
 
     .mode {
       padding: 8px 12px;
-      border: 1px solid #acd1c0;
+      border: 1px solid var(--success-border);
       border-radius: 4px;
-      background: #edf8f2;
+      background: var(--success-soft);
       color: var(--success);
       font-size: 14px;
       white-space: nowrap;
@@ -142,10 +150,10 @@
 
     .preview-shell {
       overflow: hidden;
-      border: 1px solid #bdc5cd;
+      border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--surface);
-      box-shadow: 0 12px 28px rgb(28 39 49 / 10%);
+      box-shadow: 0 12px 28px rgb(0 0 0 / 30%);
     }
 
     .preview-toolbar {
@@ -156,7 +164,7 @@
       gap: 18px;
       padding: 10px 14px;
       border-bottom: 1px solid var(--border);
-      background: #eef1f3;
+      background: var(--surface-raised);
     }
 
     .preview-repository {
@@ -182,7 +190,7 @@
       min-height: 34px;
       place-items: center;
       padding: 7px 12px;
-      border: 1px solid #aeb8c2;
+      border: 1px solid var(--border);
       border-radius: 4px;
       background: var(--surface);
       color: var(--text);
@@ -235,7 +243,7 @@
     .repository-list .selected,
     .branch-list .selected {
       background: var(--accent-soft);
-      color: #0f5877;
+      color: var(--accent);
       font-weight: 600;
     }
 
@@ -270,7 +278,7 @@
       gap: 8px;
       align-items: center;
       min-height: 46px;
-      border-bottom: 1px solid #e7eaed;
+      border-bottom: 1px solid var(--border);
       font-size: 13px;
     }
 
@@ -292,18 +300,18 @@
     }
 
     .modified {
-      background: #fff2c6;
-      color: #765600;
+      background: var(--warning-soft);
+      color: var(--warning);
     }
 
     .added {
-      background: #e4f4ea;
-      color: #26734d;
+      background: var(--success-soft);
+      color: var(--success);
     }
 
     .deleted {
-      background: #fae7e7;
-      color: #9a3838;
+      background: var(--danger-soft);
+      color: var(--danger);
     }
 
     .staged-state {
@@ -312,7 +320,7 @@
     }
 
     .action-pane {
-      background: #fafbfc;
+      background: var(--surface-raised);
     }
 
     .field-label {
@@ -326,7 +334,7 @@
       width: 100%;
       min-height: 92px;
       padding: 9px;
-      border: 1px solid #b8c1ca;
+      border: 1px solid var(--border);
       border-radius: 4px;
       background: var(--surface);
       color: var(--text);
@@ -338,7 +346,7 @@
       margin-top: 10px;
       border-color: var(--accent) !important;
       background: var(--accent) !important;
-      color: #ffffff !important;
+      color: var(--on-accent) !important;
     }
 
     .sync-actions {

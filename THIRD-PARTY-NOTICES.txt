@@ -1,6 +1,15 @@
 ClickGit Third-Party Notices
 ============================
 
+Windows restricted HTML preview addition (2026-09-09):
+  Qt WebEngine Core/Widgets and QtWebEngineProcess from the installed
+  PySide6_Addons 6.10.3 wheel are now included by the PyInstaller Qt hooks.
+  Chromium resources, ICU data and locale files are part of this runtime.
+  Their original third-party terms are not replaced by ClickGit's MIT license.
+  This inventory note is not a substitute for the module-specific license
+  texts and source/distribution materials described in section 5 below.
+  User HTML examples are not included in the application package.
+
 ClickGit project source code is licensed under the MIT License. That license
 does not replace, override, or extend to the third-party components listed
 below. Each component remains governed by its own license terms.

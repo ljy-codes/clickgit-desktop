@@ -81,9 +81,12 @@ class ReleaseConfigurationTests(unittest.TestCase):
         spec_tree = ast.parse(windows_spec, filename=str(windows_spec_path))
         analysis_call = _find_single_call(spec_tree, "Analysis")
         analysis_datas = _required_keyword(analysis_call, "datas")
-        with self.subTest(contract="Analysis.datas is empty"):
-            self.assertIsInstance(analysis_datas, ast.List)
-            self.assertEqual(analysis_datas.elts, [])
+        with self.subTest(contract="Analysis.datas explicitly bundles brand resources"):
+            self.assertIsInstance(analysis_datas, ast.ListComp)
+            self.assertEqual(ast.literal_eval(analysis_datas.elt.elts[1]), "clickgit/resources")
+            self.assertIn('brand_names = ["clickgit.ico"]', windows_spec)
+            self.assertIn('icon=str(brand_resources / "clickgit.ico")', windows_spec)
+            self.assertNotIn("rglob", windows_spec)
 
         exe_call = _find_single_call(spec_tree, "EXE")
         contents_directory = _required_keyword(
@@ -764,6 +767,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
             scripts_root / "verify_licenses.py",
         )
         shutil.copy2(source_installer, installer_root / "ClickGit.iss")
+        shutil.copy2(PROJECT_ROOT / "LICENSE", project_root / "LICENSE")
+        shutil.copytree(
+            PROJECT_ROOT / "src" / "clickgit" / "resources",
+            project_root / "src" / "clickgit" / "resources",
+        )
         shutil.copytree(
             source_installer.parent / "Languages",
             installer_root / "Languages",

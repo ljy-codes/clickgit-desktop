@@ -5,13 +5,24 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from clickgit.defaults import (
+    DEFAULT_DENSITY,
+    DEFAULT_FONT_SIZE_PX,
+    DEFAULT_MODE,
+    DEFAULT_THEME,
+)
+
 
 @dataclass(slots=True)
 class AppSettings:
     recent_repositories: list[str] = field(default_factory=list)
     favorite_repositories: list[str] = field(default_factory=list)
-    theme: str = "system"
+    theme: str = DEFAULT_THEME
     external_editor: str = ""
+    mode: str = DEFAULT_MODE
+    font_size_px: int = DEFAULT_FONT_SIZE_PX
+    density: str = DEFAULT_DENSITY
+    onboarding_completed: bool = False
 
 
 class ChangeKind(str, Enum):

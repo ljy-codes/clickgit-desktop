@@ -8,6 +8,19 @@ ClickGit 是面向完全不使用 Git 命令行用户的 Windows 和 macOS 桌�
 客户端。仓库、提交、同步、分支、冲突和恢复操作均通过按钮、列表和对话框
 完成。
 
+## 当前验收状态
+
+**2026-09-10 用户已确认验收完成**。产品版本保持 **0.2.0**，验收构建标识为
+`2026-09-10-source-inline-highlight`。当前功能范围见下方介绍与验收记录。
+
+本次同步的是源码、测试及文档，**不创建新版本标签，不自动覆盖已有 GitHub
+Release 或附件**。下方既有下载链接不代表已包含本次验收改动；核对程序
+“设置 → 诊断信息”中的构建标识，或按开发步骤从本分支构建。
+
+- [用户文档入口](docs/README.md)：主题、文档比较、HTML、冲突和问题排查。
+- [当前设计与验证](docs/development/2026-09-10-accepted-baseline.md)。
+- [0.2.0 验收记录与交付摘要](docs/releases/2026-09-10-v0.2.0-acceptance.md)。
+
 ## 下载
 
 ### 当前稳定版 v0.2.0
@@ -59,6 +72,10 @@ Windows 两种包均包含 PortableGit，不要求另外安装 Git、Python 或 
 | 冲突 | 三方查看、编辑、继续和放弃 |
 | 恢复 | 提交恢复点、未跟踪文件隔离、恢复中心 |
 | 扩展 | Worktree、子模块、Git LFS、完整性检查 |
+| 文档 | 左右源码对比、红删绿增字符高亮、差异块导航、只读比较 |
+| HTML | 需求提取、源码定位、独立进程静态预览、正文改动列表和高亮 |
+| 外观 | 明亮白色、经典深色、极光科技、跟随系统、字号与密度 |
+| 诊断 | 本机诊断快照、预览失败分类和超时保护，不自动上传 |
 
 ## 安全与恢复
 
@@ -79,6 +96,8 @@ Windows 数据目录：
 ```text
 %APPDATA%\ClickGit\
   settings.json
+  projects.json
+  diagnostics/clickgit.log
   recovery\
 ```
 
@@ -93,6 +112,11 @@ macOS 数据目录：
 密码、访问令牌和私钥内容不会写入 ClickGit 的 JSON 配置。HTTPS 和 SSH
 认证使用操作系统、Git Credential Manager 或用户已有 SSH Agent。
 
+当前 Windows 安装版和免安装包均使用当前用户的 `%APPDATA%\ClickGit`；
+“免安装”不代表设置随程序目录迁移。不要通过拖拽快捷方式搬运程序，也不要
+假定不同盘符会自动隔离配置。配置异常只读状态保护的是应用配置，不代表
+Git 仓库只读；先核对诊断路径，不能直接修改结构编号或删除凭据。
+
 ## 开发与测试
 
 Windows 初始化和测试：
@@ -104,6 +128,21 @@ $env:PYTHONPATH = "src"
 $env:QT_QPA_PLATFORM = "offscreen"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
 ```
+
+各 Qt/WebEngine 模块需要进程隔离时，可逐模块运行（本轮验收采用此方式）：
+
+```powershell
+$env:PYTHONPATH = "src"
+$env:PYTHONIOENCODING = "utf-8"
+$env:QT_QPA_PLATFORM = "offscreen"
+Get-ChildItem tests/test_*.py | Sort-Object Name | ForEach-Object {
+    .\.venv\Scripts\python.exe -B -m unittest "tests.$($_.BaseName)" -v
+    if ($LASTEXITCODE -ne 0) { throw "测试失败：$($_.Name)" }
+}
+```
+
+真实动态预览测试在 Windows 使用隐藏原生窗口；不要为通过测试而关闭
+Chromium 沙箱或放开原型脚本执行。
 
 Windows 构建、打包和验证：
 
@@ -173,6 +212,12 @@ Windows Release 以 `ClickGit-Windows-x64-Setup.exe` 安装版优先，并提供
 - macOS 应用尚未签名和公证，Gatekeeper 可能阻止首次直接启动。
 - 超大仓库的历史记录当前最多加载 200 条。
 - 文本冲突编辑器按 UTF-8 保存，二进制冲突需要外部工具处理。
+- 源码对比有 2 MiB、20000 行、单行 8192 字符上限；复杂字符比较会明确
+  降级为行级。普通文件对比是只读的，不会因为高亮而修改文件。
+- HTML 静态预览不执行脚本、不加载外部资源；隐藏需求可查看文本详情。
+  正文高亮不等同于完整 DOM、样式、脚本或像素级差异。
+- 本轮自动验证在 Windows 完成，不代表重新验证了 macOS、所有受管控环境
+  或安装卸载生命周期；用户验收范围详见验收记录。
 
 ## 许可证
 

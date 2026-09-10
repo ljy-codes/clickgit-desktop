@@ -4,13 +4,22 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules
 
-project_root = Path(SPECPATH).parent
+project_root = Path(SPECPATH).resolve().parent
+brand_resources = project_root / "src" / "clickgit" / "resources"
+# Only runtime artwork belongs in datas. Git is copied by the build scripts;
+# never recursively sweep the development runtime directory into the package.
+brand_names = ["clickgit.ico"] + [
+    f"clickgit-{size}.png" for size in (16, 20, 24, 32, 40, 48, 64, 128, 256)
+]
 
 analysis = Analysis(
     [str(project_root / "src" / "clickgit" / "__main__.py")],
     pathex=[str(project_root / "src")],
     binaries=[],
-    datas=[],
+    datas=[
+        (str(brand_resources / name), "clickgit/resources")
+        for name in brand_names
+    ],
     hiddenimports=collect_submodules("clickgit"),
     hookspath=[],
     hooksconfig={},
@@ -30,8 +39,6 @@ analysis = Analysis(
         "PySide6.QtPdf",
         "PySide6.QtQuick",
         "PySide6.QtQuick3D",
-        "PySide6.QtWebEngineCore",
-        "PySide6.QtWebEngineWidgets",
     ],
     noarchive=False,
     optimize=1,
@@ -44,6 +51,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="ClickGit",
+    icon=str(brand_resources / "clickgit.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
